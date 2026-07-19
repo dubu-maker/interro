@@ -1,0 +1,310 @@
+:root {
+  color: #e9edf2;
+  background: #0d0f13;
+  font-family:
+    Pretendard, "Noto Sans KR", Inter, system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 8%, #272330 0, transparent 28rem),
+    #0d0f13;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #4f5866;
+  border-radius: 0.55rem;
+  color: #f4f7fa;
+  background: #272d36;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #343c48;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.game-shell {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 3rem;
+}
+
+.topbar,
+.status-row,
+.suspect-card,
+.question-form {
+  display: flex;
+  align-items: center;
+}
+
+.topbar {
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+}
+
+.eyebrow {
+  margin-bottom: 0.35rem;
+  color: #a9b2bf;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.status-row {
+  align-items: end;
+  gap: 1rem;
+}
+
+#turn-status {
+  padding-bottom: 0.55rem;
+  color: #d7b978;
+  white-space: nowrap;
+}
+
+.model-field {
+  display: grid;
+  gap: 0.35rem;
+  color: #a9b2bf;
+  font-size: 0.75rem;
+}
+
+.model-field input,
+.question-form textarea {
+  border: 1px solid #343b45;
+  border-radius: 0.55rem;
+  color: #edf1f5;
+  background: #14171c;
+}
+
+.model-field input {
+  width: 11rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.briefing-panel,
+.interrogation-panel,
+.evidence-panel {
+  border: 1px solid #292f38;
+  background: rgb(20 23 28 / 88%);
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 18%);
+}
+
+.briefing-panel {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid #b28b54;
+  border-radius: 0.4rem;
+}
+
+.briefing-panel h2 {
+  margin-bottom: 0.45rem;
+  font-size: 0.85rem;
+}
+
+.briefing-panel p {
+  margin-bottom: 0;
+  color: #cbd1d8;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+}
+
+.interrogation-panel,
+.evidence-panel {
+  border-radius: 0.8rem;
+}
+
+.interrogation-panel {
+  overflow: hidden;
+}
+
+.suspect-card {
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #292f38;
+}
+
+.suspect-card h2,
+.suspect-card p {
+  margin-bottom: 0.15rem;
+}
+
+.portrait {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid #77684e;
+  border-radius: 50%;
+  color: #e5ca94;
+  background: #2d2924;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.chat-log {
+  display: flex;
+  height: 31rem;
+  padding: 1.25rem;
+  flex-direction: column;
+  gap: 0.8rem;
+  overflow-y: auto;
+}
+
+.message {
+  width: fit-content;
+  max-width: 82%;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.message.detective {
+  align-self: flex-end;
+  color: #eef3f8;
+  background: #364459;
+}
+
+.message.suspect {
+  align-self: flex-start;
+  background: #2a2525;
+}
+
+.message.system,
+.message.error {
+  align-self: center;
+  max-width: 92%;
+  color: #9da7b3;
+  background: transparent;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.message.error {
+  color: #ee9999;
+}
+
+.question-form {
+  gap: 0.7rem;
+  padding: 1rem;
+  border-top: 1px solid #292f38;
+}
+
+.question-form textarea {
+  min-height: 3.5rem;
+  padding: 0.75rem;
+  flex: 1;
+  resize: vertical;
+}
+
+.question-form button {
+  min-width: 5rem;
+  align-self: stretch;
+}
+
+.evidence-panel {
+  padding: 1rem;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.evidence-card {
+  padding: 0.9rem;
+  border: 1px solid #343b45;
+  border-radius: 0.65rem;
+  background: #191d23;
+}
+
+.evidence-card h3 {
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.evidence-card p {
+  color: #aeb6c0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.evidence-card button {
+  width: 100%;
+  padding: 0.55rem;
+}
+
+.unlocked-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #343b45;
+}
+
+.unlocked-panel h3 {
+  font-size: 0.85rem;
+}
+
+.unlocked-panel ul {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #b9c1ca;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 800px) {
+  .topbar,
+  .status-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence-panel {
+    order: -1;
+  }
+
+  .chat-log {
+    height: 26rem;
+  }
+}
