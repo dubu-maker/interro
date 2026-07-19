@@ -20,6 +20,7 @@ export interface SuspectSheet {
   publicInfo: string[];
   coverStory: string;
   nervousTopics: string[];
+  forbiddenClaims: string[];
   secrets: Secret[];
 }
 

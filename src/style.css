@@ -88,9 +88,22 @@ h1 {
   gap: 1rem;
 }
 
+.session-status {
+  display: grid;
+  min-width: 12rem;
+  padding-bottom: 0.35rem;
+  gap: 0.15rem;
+  text-align: right;
+}
+
 #turn-status {
-  padding-bottom: 0.55rem;
   color: #d7b978;
+  white-space: nowrap;
+}
+
+#session-metrics {
+  color: #7f8996;
+  font-size: 0.7rem;
   white-space: nowrap;
 }
 
@@ -112,6 +125,11 @@ h1 {
 .model-field input {
   width: 11rem;
   padding: 0.55rem 0.7rem;
+}
+
+.reset-button {
+  padding: 0.58rem 0.75rem;
+  white-space: nowrap;
 }
 
 .briefing-panel,
@@ -207,6 +225,23 @@ h1 {
   background: #2a2525;
 }
 
+.message.suspect.streaming::after {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 1em;
+  margin-left: 0.25rem;
+  background: #b8a27b;
+  vertical-align: -0.15em;
+  animation: blink 0.85s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 .message.system,
 .message.error {
   align-self: center;
@@ -294,6 +329,10 @@ h1 {
   .status-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .session-status {
+    text-align: left;
   }
 
   .workspace {

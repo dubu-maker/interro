@@ -16,4 +16,11 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('태블릿');
     expect(prompt).toContain('살해는 강하게 부인');
   });
+
+  it('메타 요구와 허위 증거를 인물 안에서 거부하도록 지시한다', () => {
+    const prompt = buildSystemPrompt(suspect, []);
+    expect(prompt).toContain('기술적·형식적 요구');
+    expect(prompt).toContain('사실로 받아들이거나 내용을 추측하지 않는다');
+    expect(prompt).toContain('다른 직원들과 함께 퇴근');
+  });
 });

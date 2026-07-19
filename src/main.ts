@@ -1,6 +1,11 @@
 import './style.css';
 import { OllamaProvider } from './ai/ollamaProvider';
 import { buildSystemPrompt } from './ai/promptBuilder';
+import {
+  buildResponseRepairPrompt,
+  guardedFallback,
+  inspectSuspectResponse,
+} from './ai/responseGuard';
 import type { ChatMessage } from './ai/types';
 import {
   briefing,
@@ -26,6 +31,10 @@ const provider = new OllamaProvider(ollamaBaseUrl);
 let gameState = createGameState(12);
 const history: ChatMessage[] = [];
 let isWaiting = false;
+let totalInputTokens = 0;
+let totalOutputTokens = 0;
+let lastLatencyMs: number | undefined;
+let guardRetryCount = 0;
 
 app.innerHTML = `
   <main class="game-shell">
@@ -35,11 +44,15 @@ app.innerHTML = `
         <h1>이도윤 대표 사망 사건</h1>
       </div>
       <div class="status-row">
-        <span id="turn-status"></span>
+        <div class="session-status">
+          <span id="turn-status"></span>
+          <span id="session-metrics">로컬 세션</span>
+        </div>
         <label class="model-field">
           <span>Ollama 모델</span>
           <input id="model-input" value="${defaultModel}" />
         </label>
+        <button id="reset-button" class="reset-button" type="button">새 심문</button>
       </div>
     </header>
 
@@ -99,7 +112,9 @@ const questionInput = getElement<HTMLTextAreaElement>('question-input');
 const sendButton = getElement<HTMLButtonElement>('send-button');
 const modelInput = getElement<HTMLInputElement>('model-input');
 const turnStatus = getElement<HTMLSpanElement>('turn-status');
+const sessionMetrics = getElement<HTMLSpanElement>('session-metrics');
 const unlockedList = getElement<HTMLUListElement>('unlocked-list');
+const resetButton = getElement<HTMLButtonElement>('reset-button');
 
 function getElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -110,19 +125,24 @@ function getElement<T extends HTMLElement>(id: string): T {
 function appendMessage(
   kind: 'detective' | 'suspect' | 'system' | 'error',
   content: string,
-): void {
+): HTMLDivElement {
   const message = document.createElement('div');
   message.className = `message ${kind}`;
   message.textContent = content;
   chatLog.append(message);
   chatLog.scrollTop = chatLog.scrollHeight;
+  return message;
 }
 
 function renderStatus(): void {
   turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}`;
   questionInput.disabled = isWaiting || !canAskQuestion(gameState);
   sendButton.disabled = isWaiting || !canAskQuestion(gameState);
+  modelInput.disabled = isWaiting;
   sendButton.textContent = isWaiting ? '답변 중…' : '질문';
+  sessionMetrics.textContent = lastLatencyMs
+    ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
+    : '로컬 세션';
 
   unlockedList.replaceChildren();
   const unlockedSecrets = suspect.secrets.filter((secret) =>
@@ -153,6 +173,7 @@ function renderEvidence(): void {
     description.textContent = evidence.description;
     const button = document.createElement('button');
     button.type = 'button';
+    button.disabled = isWaiting;
     button.textContent = gameState.presentedEvidenceIds.includes(evidence.id)
       ? '다시 제시'
       : '제시';
@@ -188,20 +209,59 @@ questionForm.addEventListener('submit', async (event) => {
   questionInput.value = '';
   isWaiting = true;
   renderStatus();
+  renderEvidence();
+
+  const startedAt = performance.now();
+  const responseBubble = appendMessage('suspect', '');
+  responseBubble.classList.add('streaming');
 
   try {
-    const response = await provider.chat({
-      systemPrompt: buildSystemPrompt(
-        suspect,
-        gameState.unlockedSecretIds,
-      ),
+    const systemPrompt = buildSystemPrompt(
+      suspect,
+      gameState.unlockedSecretIds,
+    );
+    const model = modelInput.value.trim() || defaultModel;
+    const streamIntoBubble = (delta: string): void => {
+      responseBubble.textContent += delta;
+      chatLog.scrollTop = chatLog.scrollHeight;
+    };
+    let response = await provider.chat({
+      systemPrompt,
       messages: history,
-      model: modelInput.value.trim() || defaultModel,
+      model,
+      onDelta: streamIntoBubble,
     });
-    history.push({ role: 'assistant', content: response.content });
-    appendMessage('suspect', response.content);
+    totalInputTokens += response.inputTokens ?? 0;
+    totalOutputTokens += response.outputTokens ?? 0;
+
+    if (
+      !inspectSuspectResponse(response.content, suspect.forbiddenClaims).safe
+    ) {
+      guardRetryCount += 1;
+      responseBubble.textContent = '';
+      response = await provider.chat({
+        systemPrompt: buildResponseRepairPrompt(systemPrompt),
+        messages: history,
+        model,
+        onDelta: streamIntoBubble,
+      });
+      totalInputTokens += response.inputTokens ?? 0;
+      totalOutputTokens += response.outputTokens ?? 0;
+    }
+
+    const safeContent = inspectSuspectResponse(
+      response.content,
+      suspect.forbiddenClaims,
+    ).safe
+      ? response.content
+      : guardedFallback;
+    responseBubble.classList.remove('streaming');
+    responseBubble.textContent = safeContent;
+    history.push({ role: 'assistant', content: safeContent });
     gameState = recordCompletedTurn(gameState);
+    lastLatencyMs = performance.now() - startedAt;
   } catch (error) {
+    responseBubble.remove();
     history.pop();
     const detail = error instanceof Error ? error.message : String(error);
     appendMessage(
@@ -211,9 +271,19 @@ questionForm.addEventListener('submit', async (event) => {
   } finally {
     isWaiting = false;
     renderStatus();
+    renderEvidence();
     questionInput.focus();
   }
 });
+
+questionInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    questionForm.requestSubmit();
+  }
+});
+
+resetButton.addEventListener('click', () => window.location.reload());
 
 renderEvidence();
 renderStatus();

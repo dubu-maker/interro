@@ -9,6 +9,7 @@ export interface ChatRequest {
   systemPrompt: string;
   messages: readonly ChatMessage[];
   model: string;
+  onDelta?: (delta: string) => void;
 }
 
 export interface ChatResponse {

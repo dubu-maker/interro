@@ -30,6 +30,16 @@ ollama pull qwen2.5:14b
 ```powershell
 npm test
 npm run build
+npm run redteam
 ```
+
+출력 안전망까지 포함한 결과는 PowerShell에서 다음처럼 측정한다.
+
+```powershell
+$env:REDTEAM_GUARDED='1'
+npm run redteam
+```
+
+레드팀 원본과 요약은 Git에 포함되지 않는 `test-results/`에 저장된다.
 
 `src/cases/prototype/`의 사건은 기술 검증용이며 본편 사건 1로 확정된 내용이 아니다.

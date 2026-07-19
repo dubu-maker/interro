@@ -36,6 +36,12 @@ export const suspect: SuspectSheet = {
   coverStory:
     '21시에 퇴근해서 곧장 집에 갔다. 그 뒤 회사 근처에는 가지 않았다. 대표의 사망은 토요일에 연락받고 알았다.',
   nervousTopics: ['퇴근 시각', '주차장', '금요일 밤 행적'],
+  forbiddenClaims: [
+    '다른 직원들과 함께 퇴근',
+    '토요일 아침 연락',
+    '중요한 자료',
+    '중요한 일정',
+  ],
   secrets: [
     {
       id: 'S1',
