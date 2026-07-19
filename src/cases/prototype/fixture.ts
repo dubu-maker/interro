@@ -9,16 +9,46 @@ export const evidences: Evidence[] = [
     id: 'E1',
     name: '주차장 출입 기록',
     description: '한세라 차량. 21:02 출차 → 21:38 재입차 → 22:05 출차.',
+    view: {
+      type: 'parking',
+      date: '2026-07-17',
+      camera: 'B2 출입구 CAM-03',
+      vehicle: '38가 7124 · 흰색 세단',
+      owner: '한세라',
+      rows: [
+        { time: '21:02:14', action: '출차', lane: 'B2-OUT', confidence: '99.1%' },
+        { time: '21:38:47', action: '입차', lane: 'B2-IN', confidence: '98.7%' },
+        { time: '22:05:09', action: '출차', lane: 'B2-OUT', confidence: '99.4%' },
+      ],
+    },
   },
   {
     id: 'E2',
     name: '부검 소견서',
     description: '사망 추정 시각 21:30~22:30. 후두부 외상.',
+    view: {
+      type: 'document',
+      documentNumber: 'NF-26-0718-044',
+      organization: '국립과학수사연구원 법의학부',
+      fields: [
+        { label: '피검자', value: '이도윤 (남, 41세)' },
+        { label: '사망 추정', value: '2026-07-17 21:30~22:30' },
+        { label: '직접 사인', value: '후두부 둔력 손상에 의한 두개강 내 출혈' },
+        { label: '기타 소견', value: '방어흔 없음 · 혈중알코올 음성' },
+      ],
+      note: '본 소견은 1차 부검 결과이며 정밀 독성 검사 결과에 따라 보완될 수 있음.',
+    },
   },
   {
     id: 'E3',
     name: '책상 위 커피잔 두 개',
     description: '피해자 책상에 커피잔 두 개. 하나에는 립스틱 자국이 있다.',
+    view: {
+      type: 'scene',
+      capturedAt: '2026-07-18 00:42:18',
+      location: '대표이사실 책상 · 증거번호 P-07',
+      caption: '서로 마주 보는 위치에 놓인 커피잔 두 개. 우측 잔 가장자리에 적색 착색 흔적이 확인된다.',
+    },
   },
 ];
 

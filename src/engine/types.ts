@@ -1,7 +1,38 @@
+export interface ParkingLogRow {
+  time: string;
+  action: string;
+  lane: string;
+  confidence: string;
+}
+
+export type EvidenceView =
+  | {
+      type: 'parking';
+      date: string;
+      camera: string;
+      vehicle: string;
+      owner: string;
+      rows: ParkingLogRow[];
+    }
+  | {
+      type: 'document';
+      documentNumber: string;
+      organization: string;
+      fields: Array<{ label: string; value: string }>;
+      note: string;
+    }
+  | {
+      type: 'scene';
+      capturedAt: string;
+      location: string;
+      caption: string;
+    };
+
 export interface Evidence {
   id: string;
   name: string;
   description: string;
+  view: EvidenceView;
 }
 
 export interface Secret {

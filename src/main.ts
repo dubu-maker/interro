@@ -18,6 +18,7 @@ import {
   presentEvidence,
   recordCompletedTurn,
 } from './engine/gameState';
+import type { Evidence, EvidenceView } from './engine/types';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('#app 요소를 찾을 수 없습니다.');
@@ -35,6 +36,8 @@ let totalInputTokens = 0;
 let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
 let guardRetryCount = 0;
+let selectedEvidence: Evidence | undefined;
+let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
 app.innerHTML = `
   <main class="game-shell">
@@ -102,6 +105,23 @@ app.innerHTML = `
         </div>
       </aside>
     </div>
+
+    <dialog id="evidence-dialog" class="evidence-dialog">
+      <div class="evidence-viewer">
+        <header class="viewer-header">
+          <div>
+            <p class="eyebrow">증거물 열람</p>
+            <h2 id="viewer-title"></h2>
+          </div>
+          <button id="viewer-close" class="viewer-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <div id="viewer-content" class="viewer-content"></div>
+        <footer class="viewer-footer">
+          <span>열람만으로는 심문 상태가 바뀌지 않습니다.</span>
+          <button id="viewer-present" type="button">이 증거 제시</button>
+        </footer>
+      </div>
+    </dialog>
   </main>
 `;
 
@@ -115,6 +135,11 @@ const turnStatus = getElement<HTMLSpanElement>('turn-status');
 const sessionMetrics = getElement<HTMLSpanElement>('session-metrics');
 const unlockedList = getElement<HTMLUListElement>('unlocked-list');
 const resetButton = getElement<HTMLButtonElement>('reset-button');
+const evidenceDialog = getElement<HTMLDialogElement>('evidence-dialog');
+const viewerTitle = getElement<HTMLHeadingElement>('viewer-title');
+const viewerContent = getElement<HTMLDivElement>('viewer-content');
+const viewerClose = getElement<HTMLButtonElement>('viewer-close');
+const viewerPresent = getElement<HTMLButtonElement>('viewer-present');
 
 function getElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -139,6 +164,7 @@ function renderStatus(): void {
   questionInput.disabled = isWaiting || !canAskQuestion(gameState);
   sendButton.disabled = isWaiting || !canAskQuestion(gameState);
   modelInput.disabled = isWaiting;
+  viewerPresent.disabled = isWaiting;
   sendButton.textContent = isWaiting ? '답변 중…' : '질문';
   sessionMetrics.textContent = lastLatencyMs
     ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
@@ -161,6 +187,154 @@ function renderStatus(): void {
   }
 }
 
+function stopParkingPlayback(): void {
+  if (parkingPlaybackTimer !== undefined) {
+    clearInterval(parkingPlaybackTimer);
+    parkingPlaybackTimer = undefined;
+  }
+}
+
+function startParkingPlayback(
+  view: Extract<EvidenceView, { type: 'parking' }>,
+): void {
+  stopParkingPlayback();
+  const time = document.querySelector<HTMLSpanElement>('#playback-time');
+  const event = document.querySelector<HTMLSpanElement>('#playback-event');
+  const car = document.querySelector<HTMLDivElement>('.parking-car');
+  if (!time || !event || !car) return;
+
+  let frameIndex = 0;
+  const renderFrame = (): void => {
+    const row = view.rows[frameIndex];
+    if (!row) return;
+    time.textContent = `${view.date} ${row.time}`;
+    event.textContent = `${row.action} 감지 · ${row.lane}`;
+    car.dataset.direction = row.action;
+    car.classList.remove('playing');
+    void car.offsetWidth;
+    car.classList.add('playing');
+    frameIndex = (frameIndex + 1) % view.rows.length;
+  };
+
+  renderFrame();
+  parkingPlaybackTimer = setInterval(renderFrame, 1900);
+}
+
+function renderEvidenceView(view: EvidenceView): void {
+  stopParkingPlayback();
+
+  if (view.type === 'parking') {
+    const rows = view.rows
+      .map(
+        (row) => `
+          <tr>
+            <td>${row.time}</td>
+            <td><span class="record-action">${row.action}</span></td>
+            <td>${row.lane}</td>
+            <td>${row.confidence}</td>
+          </tr>`,
+      )
+      .join('');
+    viewerContent.innerHTML = `
+      <section class="cctv-frame" aria-label="주차장 CCTV 재생 화면">
+        <div class="cctv-overlay">
+          <span class="recording-dot">● REC</span>
+          <span>${view.camera}</span>
+        </div>
+        <div class="parking-lane">
+          <span class="lane-mark lane-mark-one"></span>
+          <span class="lane-mark lane-mark-two"></span>
+          <div class="parking-car" aria-hidden="true">
+            <span></span><i></i><i></i>
+          </div>
+          <div class="barrier" aria-hidden="true"></div>
+        </div>
+        <div class="cctv-caption">
+          <span id="playback-time"></span>
+          <strong id="playback-event"></strong>
+        </div>
+      </section>
+      <section class="record-sheet">
+        <div class="record-heading">
+          <div>
+            <span>차량번호</span><strong>${view.vehicle}</strong>
+          </div>
+          <div>
+            <span>등록자</span><strong>${view.owner}</strong>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>인식 시각</th><th>구분</th><th>차로</th><th>인식률</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class="record-footnote">LPR 자동 인식 원본 · 관리자 수정 이력 없음</p>
+      </section>`;
+    startParkingPlayback(view);
+    return;
+  }
+
+  if (view.type === 'document') {
+    const fields = view.fields
+      .map(
+        (field) => `
+          <div class="report-field">
+            <dt>${field.label}</dt><dd>${field.value}</dd>
+          </div>`,
+      )
+      .join('');
+    viewerContent.innerHTML = `
+      <article class="forensic-report">
+        <div class="report-mark">법의학 감정서</div>
+        <p class="report-organization">${view.organization}</p>
+        <p class="report-number">문서번호 ${view.documentNumber}</p>
+        <dl>${fields}</dl>
+        <p class="report-note">${view.note}</p>
+        <div class="report-stamp" aria-hidden="true">감정<br>완료</div>
+      </article>`;
+    return;
+  }
+
+  viewerContent.innerHTML = `
+    <figure class="scene-photo">
+      <div class="desk-scene" aria-label="책상 위 커피잔 두 개를 촬영한 현장 사진">
+        <div class="case-marker">7</div>
+        <div class="coffee-cup cup-one"><span></span></div>
+        <div class="coffee-cup cup-two"><span class="lipstick-mark"></span></div>
+        <div class="photo-scale">0&nbsp;&nbsp;&nbsp;5&nbsp;&nbsp;&nbsp;10 cm</div>
+      </div>
+      <figcaption>
+        <strong>${view.location}</strong>
+        <span>${view.capturedAt}</span>
+        <p>${view.caption}</p>
+      </figcaption>
+    </figure>`;
+}
+
+function openEvidence(evidence: Evidence): void {
+  selectedEvidence = evidence;
+  viewerTitle.textContent = evidence.name;
+  viewerPresent.disabled = isWaiting;
+  renderEvidenceView(evidence.view);
+  evidenceDialog.showModal();
+}
+
+function handlePresentEvidence(evidence: Evidence): void {
+  const result = presentEvidence(gameState, suspect, evidence.id);
+  gameState = result.state;
+
+  appendMessage('system', `증거 제시: ${evidence.name}`);
+  if (result.newlyUnlockedSecretIds.length > 0) {
+    appendMessage(
+      'system',
+      '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
+    );
+  } else {
+    appendMessage('system', '이 증거만으로 새롭게 확인된 사실은 없다.');
+  }
+  renderEvidence();
+  renderStatus();
+}
+
 function renderEvidence(): void {
   evidenceList.replaceChildren();
   for (const evidence of evidences) {
@@ -171,30 +345,24 @@ function renderEvidence(): void {
     title.textContent = evidence.name;
     const description = document.createElement('p');
     description.textContent = evidence.description;
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.disabled = isWaiting;
-    button.textContent = gameState.presentedEvidenceIds.includes(evidence.id)
+    const actions = document.createElement('div');
+    actions.className = 'evidence-actions';
+    const viewButton = document.createElement('button');
+    viewButton.type = 'button';
+    viewButton.className = 'view-button';
+    viewButton.textContent = '열람';
+    viewButton.addEventListener('click', () => openEvidence(evidence));
+
+    const presentButton = document.createElement('button');
+    presentButton.type = 'button';
+    presentButton.disabled = isWaiting;
+    presentButton.textContent = gameState.presentedEvidenceIds.includes(evidence.id)
       ? '다시 제시'
       : '제시';
-    button.addEventListener('click', () => {
-      const result = presentEvidence(gameState, suspect, evidence.id);
-      gameState = result.state;
+    presentButton.addEventListener('click', () => handlePresentEvidence(evidence));
+    actions.append(viewButton, presentButton);
 
-      appendMessage('system', `증거 제시: ${evidence.name}`);
-      if (result.newlyUnlockedSecretIds.length > 0) {
-        appendMessage(
-          'system',
-          '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
-        );
-      } else {
-        appendMessage('system', '이 증거만으로 새롭게 확인된 사실은 없다.');
-      }
-      renderEvidence();
-      renderStatus();
-    });
-
-    card.append(title, description, button);
+    card.append(title, description, actions);
     evidenceList.append(card);
   }
 }
@@ -284,6 +452,16 @@ questionInput.addEventListener('keydown', (event) => {
 });
 
 resetButton.addEventListener('click', () => window.location.reload());
+viewerClose.addEventListener('click', () => evidenceDialog.close());
+viewerPresent.addEventListener('click', () => {
+  if (!selectedEvidence || isWaiting) return;
+  handlePresentEvidence(selectedEvidence);
+  evidenceDialog.close();
+});
+evidenceDialog.addEventListener('close', stopParkingPlayback);
+evidenceDialog.addEventListener('click', (event) => {
+  if (event.target === evidenceDialog) evidenceDialog.close();
+});
 
 renderEvidence();
 renderStatus();
