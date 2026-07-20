@@ -1,0 +1,89 @@
+import { describe, expect, it } from 'vitest';
+import { hanSeraContract } from '../cases/prototype/contract';
+import { composeFallbackLine, inspectRenderedLine } from './renderer';
+
+const s1Meanings = [
+  '21시 38분에 두고 온 태블릿을 가지러 회사로 돌아왔다.',
+  '사무실 앞에서 대표가 누군가와 통화하며 언성을 높이는 소리를 들었다.',
+];
+
+function inspect(
+  content: string,
+  overrides: Partial<Parameters<typeof inspectRenderedLine>[1]> = {},
+) {
+  return inspectRenderedLine(content, {
+    approvedMeanings: s1Meanings,
+    question: '왜 다시 회사로 돌아온 겁니까?',
+    materialLexicon: hanSeraContract.materialLexicon,
+    counterQuestion: false,
+    ...overrides,
+  });
+}
+
+describe('inspectRenderedLine', () => {
+  it('승인된 의미(S1 통화 언쟁)는 정상 출력된다', () => {
+    const result = inspect(
+      '태블릿을 가지러 돌아왔습니다. 그때 대표님이 통화하며 언성을 높이는 소리를 들었습니다.',
+    );
+    expect(result).toEqual({ safe: true, violations: [] });
+  });
+
+  it('시트에 없는 물질적 세부(커피)는 거부된다', () => {
+    const result = inspect(
+      '태블릿을 찾으러 왔고, 대표님은 커피를 마시며 통화 중이었습니다.',
+    );
+    expect(result.safe).toBe(false);
+    expect(result.violations).toContain('시트 밖 세부: 커피');
+  });
+
+  it('S2에서 커피가 승인된 의미에 있으면 허용된다', () => {
+    const result = inspect('대표님이 내려 준 커피를 함께 마셨습니다.', {
+      approvedMeanings: [
+        '대표가 내려 준 커피를 함께 마셨고, 잔 하나에 립스틱 자국이 남았다.',
+      ],
+    });
+    expect(result.safe).toBe(true);
+  });
+
+  it('심문관 질문에 나온 세부를 되받는 것은 허용된다', () => {
+    const result = inspect('커피잔에 대해서는 아는 것이 없습니다.', {
+      approvedMeanings: [],
+      question: '책상 위 커피잔 두 개는 어떻게 설명할 겁니까?',
+    });
+    expect(result.safe).toBe(true);
+  });
+
+  it('승인되지 않은 시간 표현은 거부된다', () => {
+    const result = inspect('23시쯤 다른 곳에 있었습니다.', {
+      approvedMeanings: [],
+    });
+    expect(result.safe).toBe(false);
+    expect(result.violations.some((v) => v.includes('시간'))).toBe(true);
+  });
+
+  it('counterQuestion이 false면 질문형 종결이 거부된다', () => {
+    const result = inspect('태블릿을 가지러 돌아왔습니다. 왜 그러시죠?');
+    expect(result.safe).toBe(false);
+    expect(result.violations).toContain('허용되지 않은 반문');
+  });
+
+  it('counterQuestion이 true면 되물음이 허용된다', () => {
+    const result = inspect(
+      '태블릿을 가지러 돌아왔습니다. 지금 저를 의심하시는 겁니까?',
+      { counterQuestion: true },
+    );
+    expect(result.safe).toBe(true);
+  });
+});
+
+describe('composeFallbackLine', () => {
+  it('승인된 의미를 그대로 이어 붙인다', () => {
+    expect(composeFallbackLine(s1Meanings)).toBe(
+      '21시 38분에 두고 온 태블릿을 가지러 회사로 돌아왔다. 사무실 앞에서 대표가 누군가와 통화하며 언성을 높이는 소리를 들었다.',
+    );
+  });
+
+  it('승인된 의미가 없으면 중립 문장을 쓴다', () => {
+    expect(composeFallbackLine([])).toContain('더 드릴 말이 없습니다');
+  });
+});

@@ -1,22 +1,35 @@
 import './style.css';
 import { OllamaProvider } from './ai/ollamaProvider';
-import { buildSystemPrompt } from './ai/promptBuilder';
 import {
-  buildResponseRepairPrompt,
-  guardedFallback,
-  inspectSuspectResponse,
-  stripClosingInvites,
-} from './ai/responseGuard';
+  buildFallbackPlan,
+  buildPlannerPrompt,
+  parsePlannerResponse,
+  type ResponsePlan,
+} from './ai/planner';
+import {
+  buildRendererPrompt,
+  composeFallbackLine,
+  inspectRenderedLine,
+} from './ai/renderer';
+import { stripClosingInvites } from './ai/responseGuard';
 import type { ChatMessage } from './ai/types';
+import { hanSeraContract } from './cases/prototype/contract';
 import {
   briefing,
   evidences,
   suspect,
 } from './cases/prototype/fixture';
 import {
+  allowedClaims,
+  applyEvidencePresentation,
+  createContractState,
+  getClaim,
+  getStage,
+  recordStatements,
+} from './engine/contract';
+import {
   canAskQuestion,
   createGameState,
-  presentEvidence,
   recordCompletedTurn,
 } from './engine/gameState';
 import type { Evidence, EvidenceView } from './engine/types';
@@ -37,9 +50,10 @@ let totalInputTokens = 0;
 let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
 let guardRetryCount = 0;
-// 용의자 진술 기록. 엔진이 보증하는 사실이 아니라 인물의 주장이며,
-// 참·거짓 판정 없이 턴 순서대로 쌓는다.
-const suspectStatements: { turn: number; content: string }[] = [];
+// 사건 계약 상태. 방어 단계와 claim 단위 진술 기록을 소유한다.
+let contractState = createContractState(hanSeraContract);
+// 증거 제시로 확정된 새 사실 알림 (전환 순서대로).
+const unlockedNotices: string[] = [];
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -204,33 +218,38 @@ function renderStatus(): void {
     : '로컬 세션';
 
   unlockedList.replaceChildren();
-  const unlockedSecrets = suspect.secrets.filter((secret) =>
-    gameState.unlockedSecretIds.includes(secret.id),
-  );
-  if (unlockedSecrets.length === 0) {
+  if (unlockedNotices.length === 0) {
     const item = document.createElement('li');
     item.textContent = '아직 없음';
     unlockedList.append(item);
   } else {
-    for (const secret of unlockedSecrets) {
+    for (const notice of unlockedNotices) {
       const item = document.createElement('li');
-      item.textContent = secret.unlockNotice;
+      item.textContent = notice;
       unlockedList.append(item);
     }
   }
 }
 
+// 진술 패널은 렌더링된 자연어를 재분석하지 않고, 계획자가 선택한
+// claim ID에서 직접 생성한다. 대화창·패널·엔진 상태가 같은 세계를 가리킨다.
 function renderStatements(): void {
   statementsList.replaceChildren();
-  if (suspectStatements.length === 0) {
+  if (contractState.statements.length === 0) {
     const item = document.createElement('li');
     item.textContent = '아직 없음';
     statementsList.append(item);
     return;
   }
-  for (const statement of suspectStatements) {
+  for (const statement of contractState.statements) {
+    const claim = getClaim(hanSeraContract, statement.claimId);
+    if (!claim) continue;
     const item = document.createElement('li');
-    item.textContent = `${statement.turn}턴 · ${statement.content}`;
+    item.textContent = `${statement.turn}턴 · ${claim.meaning}`;
+    if (statement.status === 'CONTRADICTED') {
+      item.classList.add('contradicted');
+      item.textContent += ' (모순)';
+    }
     statementsList.append(item);
   }
   statementsList.scrollTop = statementsList.scrollHeight;
@@ -368,11 +387,22 @@ function openEvidence(evidence: Evidence): void {
 }
 
 function handlePresentEvidence(evidence: Evidence): void {
-  const result = presentEvidence(gameState, suspect, evidence.id);
-  gameState = result.state;
+  const outcome = applyEvidencePresentation(
+    hanSeraContract,
+    contractState,
+    evidence.id,
+  );
+  contractState = outcome.state;
+  gameState = {
+    ...gameState,
+    presentedEvidenceIds: gameState.presentedEvidenceIds.includes(evidence.id)
+      ? gameState.presentedEvidenceIds
+      : [...gameState.presentedEvidenceIds, evidence.id],
+  };
 
   appendMessage('system', `증거 제시: ${evidence.name}`);
-  if (result.newlyUnlockedSecretIds.length > 0) {
+  if (outcome.transition) {
+    unlockedNotices.push(outcome.transition.unlockNotice);
     appendMessage(
       'system',
       '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
@@ -382,6 +412,7 @@ function handlePresentEvidence(evidence: Evidence): void {
   }
   renderEvidence();
   renderStatus();
+  renderStatements();
 }
 
 function renderEvidence(): void {
@@ -433,65 +464,97 @@ questionForm.addEventListener('submit', async (event) => {
   responseBubble.classList.add('streaming');
 
   try {
-    const systemPrompt = buildSystemPrompt(
-      suspect,
-      gameState.unlockedSecretIds,
-    );
     const model = modelInput.value.trim() || defaultModel;
-    let response = await provider.chat({
-      systemPrompt,
-      messages: history,
-      model,
-    });
-    totalInputTokens += response.inputTokens ?? 0;
-    totalOutputTokens += response.outputTokens ?? 0;
+    const stage = getStage(hanSeraContract, contractState.stageId);
+    const candidates = allowedClaims(hanSeraContract, contractState);
 
-    const firstInspection = inspectSuspectResponse(
-      response.content,
-      suspect.forbiddenClaims,
-      question,
+    // 1차 호출: 계획자. 후보 중에서 claim ID와 화행만 고른다.
+    const plannerPrompt = buildPlannerPrompt(
+      stage,
+      candidates,
+      history.slice(-6, -1),
     );
-    if (!firstInspection.safe) {
-      console.warn('[안전망] 1차 답변 폐기', {
-        violations: firstInspection.violations,
-        content: response.content,
+    let plan: ResponsePlan | undefined;
+    for (let attempt = 0; attempt < 2 && !plan; attempt += 1) {
+      const planResponse = await provider.chat({
+        systemPrompt: plannerPrompt,
+        messages: [{ role: 'user', content: question }],
+        model,
+        format: 'json',
+        temperature: 0,
       });
-      guardRetryCount += 1;
-      responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
-      response = await provider.chat({
-        systemPrompt: buildResponseRepairPrompt(
-          systemPrompt,
-          firstInspection.violations,
-        ),
-        messages: history,
+      totalInputTokens += planResponse.inputTokens ?? 0;
+      totalOutputTokens += planResponse.outputTokens ?? 0;
+      plan = parsePlannerResponse(planResponse.content, candidates);
+      if (!plan) {
+        console.warn('[계획자] 파싱 실패, 재시도', {
+          content: planResponse.content,
+        });
+      }
+    }
+    if (!plan) {
+      plan = buildFallbackPlan(stage, candidates);
+      console.warn('[계획자] 결정론적 기본 계획 사용', plan);
+    }
+    const approvedMeanings = plan.claimIds
+      .map((claimId) => getClaim(hanSeraContract, claimId)?.meaning)
+      .filter((meaning): meaning is string => meaning !== undefined);
+
+    // 2차 호출: 렌더러. 승인된 의미만 대사로 표현한다.
+    const rendererPrompt = buildRendererPrompt(
+      suspect,
+      stage.strategy,
+      plan,
+      approvedMeanings,
+    );
+    const inspectionInput = {
+      approvedMeanings,
+      question,
+      materialLexicon: hanSeraContract.materialLexicon,
+      counterQuestion: plan.counterQuestion,
+    };
+    let line = '';
+    let lineAccepted = false;
+    for (let attempt = 0; attempt < 2 && !lineAccepted; attempt += 1) {
+      const rendered = await provider.chat({
+        systemPrompt:
+          attempt === 0
+            ? rendererPrompt
+            : `${rendererPrompt}\n\n직전 답변은 규칙 위반으로 폐기되었다. 승인된 의미만 다시 표현한다.`,
+        messages: [{ role: 'user', content: question }],
         model,
       });
-      totalInputTokens += response.inputTokens ?? 0;
-      totalOutputTokens += response.outputTokens ?? 0;
+      totalInputTokens += rendered.inputTokens ?? 0;
+      totalOutputTokens += rendered.outputTokens ?? 0;
+      line = stripClosingInvites(rendered.content);
+      const inspection = inspectRenderedLine(line, inspectionInput);
+      if (inspection.safe) {
+        lineAccepted = true;
+      } else {
+        guardRetryCount += 1;
+        responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
+        console.warn('[렌더러] 대사 폐기', {
+          violations: inspection.violations,
+          content: rendered.content,
+        });
+      }
+    }
+    if (!lineAccepted) {
+      line = composeFallbackLine(approvedMeanings);
+      console.warn('[렌더러] 고정 대사 사용', { line });
     }
 
-    const finalInspection = firstInspection.safe
-      ? firstInspection
-      : inspectSuspectResponse(
-          response.content,
-          suspect.forbiddenClaims,
-          question,
-        );
-    if (!finalInspection.safe) {
-      console.warn('[안전망] 재생성 답변도 폐기, 폴백 사용', {
-        violations: finalInspection.violations,
-        content: response.content,
-      });
-    }
-    const safeContent = stripClosingInvites(
-      finalInspection.safe ? response.content : guardedFallback,
-    );
-    history.push({ role: 'assistant', content: safeContent });
+    // 커밋: 검증에 성공한 경우에만 상태와 진술을 함께 반영한다.
+    history.push({ role: 'assistant', content: line });
     gameState = recordCompletedTurn(gameState);
-    suspectStatements.push({ turn: gameState.turn, content: safeContent });
+    contractState = recordStatements(
+      contractState,
+      plan.claimIds,
+      gameState.turn,
+    );
     renderStatements();
     lastLatencyMs = performance.now() - startedAt;
-    revealSuspectAnswer(responseBubble, safeContent);
+    revealSuspectAnswer(responseBubble, line);
   } catch (error) {
     responseBubble.remove();
     history.pop();

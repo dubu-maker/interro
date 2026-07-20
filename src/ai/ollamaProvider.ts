@@ -31,8 +31,9 @@ export class OllamaProvider implements ModelProvider {
         model: request.model,
         stream,
         keep_alive: '10m',
+        ...(request.format ? { format: request.format } : {}),
         options: {
-          temperature: 0.35,
+          temperature: request.temperature ?? 0.35,
           num_predict: 128,
           repeat_penalty: 1.1,
         },

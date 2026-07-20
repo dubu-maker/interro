@@ -366,6 +366,11 @@ h1 {
   margin-top: 0.4rem;
 }
 
+.statements-panel li.contradicted {
+  text-decoration: line-through;
+  color: #8a5b5b;
+}
+
 .evidence-dialog {
   width: min(52rem, calc(100% - 2rem));
   max-height: calc(100vh - 2rem);
