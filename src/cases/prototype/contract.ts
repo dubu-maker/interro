@@ -29,7 +29,12 @@ export const hanSeraContract: CaseContract = {
       id: 'S2',
       strategy:
         '대표실에서 대표를 만난 사실까지 인정한다. 언쟁은 시인하되 살해는 강하게 부인한다.',
+      // 이전 단계에서 인정한 사실(태블릿, 통화 목격, 퇴차 시각)은 단계가
+      // 전진해도 계속 진술할 수 있어야 한다.
       allowedClaimIds: [
+        'C_TABLET',
+        'C_HEARD_PHONE',
+        'C_LEFT_2205',
         'C_ENTERED_OFFICE',
         'C_COFFEE_TOGETHER',
         'C_MONEY_ARGUMENT',

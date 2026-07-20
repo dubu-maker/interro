@@ -42,6 +42,19 @@ describe('사건 계약 엔진', () => {
     expect(claimIds).toContain('C_COFFEE_TOGETHER');
   });
 
+  it('단계가 전진해도 이전 단계에서 인정한 사실은 계속 진술할 수 있다', () => {
+    let state = createContractState(hanSeraContract);
+    state = applyEvidencePresentation(hanSeraContract, state, 'E1').state;
+    state = applyEvidencePresentation(hanSeraContract, state, 'E3').state;
+    const claimIds = allowedClaims(hanSeraContract, state).map(
+      (claim) => claim.id,
+    );
+
+    expect(claimIds).toContain('C_HEARD_PHONE');
+    expect(claimIds).toContain('C_TABLET');
+    expect(claimIds).toContain('C_LEFT_2205');
+  });
+
   it('계획자가 현재 단계에서 허용되지 않은 claim을 고르면 차단된다', () => {
     const state = createContractState(hanSeraContract);
     const result = validatePlannedClaimIds(hanSeraContract, state, [
