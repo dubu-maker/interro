@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { suspect } from '../cases/prototype/fixture';
 import {
+  canAskQuestion,
   createGameState,
+  isOvertime,
   presentEvidence,
   recordCompletedTurn,
 } from './gameState';
@@ -29,5 +31,14 @@ describe('gameState', () => {
     const initial = createGameState(2);
     expect(recordCompletedTurn(initial).turn).toBe(1);
     expect(initial.turn).toBe(0);
+  });
+
+  it('정규 마감선을 넘어도 심문은 계속되고 초과 수사로 표시된다', () => {
+    let state = createGameState(2);
+    state = recordCompletedTurn(state);
+    state = recordCompletedTurn(state);
+    expect(isOvertime(state)).toBe(true);
+    expect(canAskQuestion(state)).toBe(true);
+    expect(recordCompletedTurn(state).turn).toBe(3);
   });
 });

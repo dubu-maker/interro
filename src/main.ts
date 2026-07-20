@@ -22,6 +22,7 @@ import {
 import {
   canAskQuestion,
   createGameState,
+  isOvertime,
   recordCompletedTurn,
 } from './engine/gameState';
 import type { Evidence, EvidenceView } from './engine/types';
@@ -60,6 +61,8 @@ const unlockedNotices: string[] = [];
 // 수사 노트 힌트를 하나 보여주고 초기화한다.
 let stalledTurns = 0;
 const shownHintIds: string[] = [];
+// 직전 답변이 되물음으로 끝났는지. 연속 반문 방지용.
+let lastCounterQuestion = false;
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -240,7 +243,7 @@ function renderStarterQuestions(): void {
 
 function renderStatus(): void {
   renderStarterQuestions();
-  turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}`;
+  turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}${isOvertime(gameState) ? ' · 초과 수사' : ''}`;
   questionInput.disabled = isWaiting || !canAskQuestion(gameState);
   sendButton.disabled = isWaiting || !canAskQuestion(gameState);
   modelInput.disabled = isWaiting;
@@ -507,6 +510,7 @@ questionForm.addEventListener('submit', async (event) => {
       suspect: suspectPersona,
       question,
       recentTurns: history.slice(-6, -1),
+      lastCounterQuestion,
       onDiscard: (violations) => {
         guardRetryCount += 1;
         responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
@@ -515,6 +519,7 @@ questionForm.addEventListener('submit', async (event) => {
     });
     totalInputTokens += result.inputTokens;
     totalOutputTokens += result.outputTokens;
+    lastCounterQuestion = result.plan.counterQuestion;
     if (result.plan.usedFallback) {
       console.warn('[계획자] 결정론적 기본 계획 사용', result.plan);
     }

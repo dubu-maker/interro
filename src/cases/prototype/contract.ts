@@ -60,7 +60,8 @@ export const hanSeraContract: CaseContract = {
       from: 'S1',
       to: 'S2',
       whenEvidencePresented: 'E3',
-      unlockNotice: '커피잔의 립스틱 자국이 한세라의 재방문과 연결된다.',
+      unlockNotice:
+        '마주 놓인 커피잔 두 개 — 그날 밤 누군가 피해자와 마주 앉아 있었다.',
     },
   ],
   claims: [
@@ -140,7 +141,7 @@ export const hanSeraContract: CaseContract = {
     },
     {
       id: 'H_S2_TOPIC',
-      text: '두 사람이 마주 앉아 무슨 이야기를 나눴는지는 아직 나오지 않았다.',
+      text: '통화 얘기가 아니라, 한세라 본인이 대표와 마주 앉아 나눈 대화의 주제는 아직 밝혀지지 않았다.',
       stageIds: ['S2'],
       targetClaimId: 'C_MONEY_ARGUMENT',
     },

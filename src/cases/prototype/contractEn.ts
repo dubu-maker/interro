@@ -58,7 +58,7 @@ export const hanSeraContractEn: CaseContract = {
       to: 'S2',
       whenEvidencePresented: 'E3',
       unlockNotice:
-        "The lipstick mark on the coffee cup ties Han Se-ra to the victim's office.",
+        'Two cups facing each other — someone sat across from the victim that night.',
     },
   ],
   claims: [
@@ -140,7 +140,7 @@ export const hanSeraContractEn: CaseContract = {
     },
     {
       id: 'H_S2_TOPIC',
-      text: 'What the two of them actually talked about has not come out yet.',
+      text: "Not the phone call — what Han Se-ra herself discussed with Mr. Lee over coffee has not come out yet.",
       stageIds: ['S2'],
       targetClaimId: 'C_MONEY_ARGUMENT',
     },

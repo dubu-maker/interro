@@ -58,6 +58,8 @@ Rules:
 - Pick 1-2 claimIds directly relevant to the detective's question.
 - If no candidate is relevant, return an empty array.
 - Set counterQuestion to true only when the suspect would defensively ask back.
+- The suspect never asks the detective for case information. A counter-question
+  may only push back on the accusation or its logic, and should be rare.
 
 Output JSON only, with this schema:
 {"speechAct": "DENIAL" | "PARTIAL_ADMISSION" | "ADMISSION" | "DEFLECT",
@@ -88,6 +90,8 @@ ${recent || '(없음)'}
 - claimIds는 형사의 질문과 직접 관련된 후보만 1~2개 고른다.
 - 질문과 관련된 후보가 없으면 빈 배열을 반환한다.
 - counterQuestion은 용의자가 방어적으로 되물을 때만 true로 한다.
+- 용의자는 수사관에게 사건 정보를 묻지 않는다. 되물음은 혐의나 추론에
+  대한 반박일 때만, 드물게 쓴다.
 
 다음 스키마의 JSON만 출력한다:
 {"speechAct": "DENIAL" | "PARTIAL_ADMISSION" | "ADMISSION" | "DEFLECT",

@@ -43,6 +43,8 @@ export interface SuspectTurnRequest {
   suspect: SuspectPersona;
   question: string;
   recentTurns: readonly ChatMessage[];
+  // 직전 답변이 되물음으로 끝났으면 true. 연속 반문을 막는 데 쓴다.
+  lastCounterQuestion?: boolean;
   // 렌더링이 폐기될 때마다 호출된다 (UI 표시용).
   onDiscard?: (violations: string[]) => void;
 }
@@ -79,6 +81,10 @@ export async function runSuspectTurn(
     plan = parsePlannerResponse(planResponse.content, candidates);
   }
   plan ??= buildFallbackPlan(stage, candidates);
+  // 반문 빈도 캡: 직전 답변이 되물음이었으면 연속 반문을 강제로 끈다.
+  if (request.lastCounterQuestion && plan.counterQuestion) {
+    plan = { ...plan, counterQuestion: false };
+  }
 
   const approvedMeanings = plan.claimIds
     .map((claimId) => getClaim(contract, claimId)?.meaning)

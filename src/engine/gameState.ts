@@ -18,15 +18,18 @@ export function createGameState(maxTurns: number): GameState {
   };
 }
 
-export function canAskQuestion(state: GameState): boolean {
-  return state.turn < state.maxTurns;
+// 소프트 캡: maxTurns는 하드 종료가 아니라 정규 수사 마감선이다.
+// 초과해도 심문은 계속되고, 초과 수사로 표기·기록만 된다.
+// (베타에서 실제 필요 턴 수를 측정한 뒤 정식 한도를 정한다.)
+export function canAskQuestion(_state: GameState): boolean {
+  return true;
+}
+
+export function isOvertime(state: GameState): boolean {
+  return state.turn >= state.maxTurns;
 }
 
 export function recordCompletedTurn(state: GameState): GameState {
-  if (!canAskQuestion(state)) {
-    throw new Error('남은 심문 턴이 없습니다.');
-  }
-
   return { ...state, turn: state.turn + 1 };
 }
 
