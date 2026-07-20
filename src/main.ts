@@ -2,22 +2,19 @@ import './style.css';
 import { runSuspectTurn } from './ai/interrogationPipeline';
 import { OllamaProvider } from './ai/ollamaProvider';
 import type { ChatMessage } from './ai/types';
-import { hanSeraContract } from './cases/prototype/contract';
+import { case1 } from './cases/case1';
 import {
-  hanSeraContractEn,
-  suspectEn,
-} from './cases/prototype/contractEn';
-import {
-  briefing,
-  evidences,
-  suspect,
-} from './cases/prototype/fixture';
+  prototypeCaseEn,
+  prototypeCaseKo,
+} from './cases/prototype';
+import { getSuspect, type CaseSuspect } from './engine/case';
 import {
   applyEvidencePresentation,
   createContractState,
   getClaim,
   recordStatements,
   selectHint,
+  type ContractState,
 } from './engine/contract';
 import {
   canAskQuestion,
@@ -36,33 +33,60 @@ const defaultModel =
   import.meta.env.VITE_OLLAMA_MODEL ?? 'qwen2.5:14b';
 const provider = new OllamaProvider(ollamaBaseUrl);
 
-let gameState = createGameState(12);
-const history: ChatMessage[] = [];
+// 사건 선택: ?case=case1 → 사건 1 (영어 저작), 그 외에는 프로토타입
+// (?lang=en 이면 영어 프로토타입).
+const urlParams = new URLSearchParams(window.location.search);
+const activeCase =
+  urlParams.get('case') === 'case1'
+    ? case1
+    : urlParams.get('lang') === 'en'
+      ? prototypeCaseEn
+      : prototypeCaseKo;
+
+let gameState = createGameState(activeCase.maxTurns);
 let isWaiting = false;
 let totalInputTokens = 0;
 let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
 let guardRetryCount = 0;
-// 사건 계약 상태. 방어 단계와 claim 단위 진술 기록을 소유한다.
-// ?lang=en 으로 영어 플레이 테스트 모드를 켠다 (계약·프롬프트·검사기 전환).
-const playLanguage =
-  new URLSearchParams(window.location.search).get('lang') === 'en'
-    ? 'en'
-    : 'ko';
-const contract = playLanguage === 'en' ? hanSeraContractEn : hanSeraContract;
-const suspectPersona =
-  playLanguage === 'en'
-    ? suspectEn
-    : { name: suspect.name, role: suspect.role, persona: suspect.persona };
-let contractState = createContractState(contract);
-// 증거 제시로 확정된 새 사실 알림 (전환 순서대로).
+// 용의자별 심문 세션. 계약 상태·대화 이력·정체 카운터를 분리 보관한다.
+interface SuspectSession {
+  contractState: ContractState;
+  history: ChatMessage[];
+  messages: { kind: string; content: string }[];
+  presentedEvidenceIds: string[];
+  stalledTurns: number;
+  shownHintIds: string[];
+  lastCounterQuestion: boolean;
+}
+
+const sessions = new Map<string, SuspectSession>();
+let activeSuspectId = activeCase.suspects[0]?.id ?? '';
+
+function activeSuspect(): CaseSuspect {
+  return getSuspect(activeCase, activeSuspectId);
+}
+
+function session(): SuspectSession {
+  let entry = sessions.get(activeSuspectId);
+  if (!entry) {
+    const current = activeSuspect();
+    entry = {
+      contractState: createContractState(current.contract),
+      history: [],
+      messages: [{ kind: 'system', content: current.introLine }],
+      presentedEvidenceIds: [],
+      stalledTurns: 0,
+      shownHintIds: [],
+      lastCounterQuestion: false,
+    };
+    sessions.set(activeSuspectId, entry);
+  }
+  return entry;
+}
+
+// 증거 제시로 확정된 새 사실 알림 (사건 전체 공유, 전환 순서대로).
 const unlockedNotices: string[] = [];
-// 정체 감지: 새 진술·전환 없이 지나간 심문 턴 수. 2턴 연속 정체면
-// 수사 노트 힌트를 하나 보여주고 초기화한다.
-let stalledTurns = 0;
-const shownHintIds: string[] = [];
-// 직전 답변이 되물음으로 끝났는지. 연속 반문 방지용.
-let lastCounterQuestion = false;
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -71,7 +95,7 @@ app.innerHTML = `
     <header class="topbar">
       <div>
         <p class="eyebrow">INTERRO / 기술 검증용 사건</p>
-        <h1>이도윤 대표 사망 사건</h1>
+        <h1>${activeCase.title}</h1>
       </div>
       <div class="status-row">
         <div class="session-status">
@@ -88,25 +112,22 @@ app.innerHTML = `
 
     <section class="briefing-panel">
       <h2>사건 브리핑</h2>
-      <p>${briefing}</p>
+      <p>${activeCase.briefing}</p>
     </section>
 
     <div class="workspace">
       <section class="interrogation-panel">
+        <div id="suspect-tabs" class="suspect-tabs"></div>
         <div class="suspect-card">
-          <div class="portrait" aria-hidden="true">한</div>
+          <div id="suspect-portrait" class="portrait" aria-hidden="true"></div>
           <div>
             <p class="eyebrow">심문 대상</p>
-            <h2>${suspect.name}</h2>
-            <p>${suspect.role}</p>
+            <h2 id="suspect-name"></h2>
+            <p id="suspect-role"></p>
           </div>
         </div>
 
-        <div id="chat-log" class="chat-log" aria-live="polite">
-          <div class="message system">
-            한세라가 맞은편 의자에 앉아 손을 모은 채 기다리고 있다.
-          </div>
-        </div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
 
         <div id="starter-questions" class="starter-questions"></div>
 
@@ -160,6 +181,10 @@ app.innerHTML = `
 `;
 
 const chatLog = getElement<HTMLDivElement>('chat-log');
+const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
+const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
+const suspectName = getElement<HTMLHeadingElement>('suspect-name');
+const suspectRole = getElement<HTMLParagraphElement>('suspect-role');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
 const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
 const questionForm = getElement<HTMLFormElement>('question-form');
@@ -186,13 +211,68 @@ function getElement<T extends HTMLElement>(id: string): T {
 function appendMessage(
   kind: 'detective' | 'suspect' | 'system' | 'error' | 'hint',
   content: string,
+  record = true,
 ): HTMLDivElement {
   const message = document.createElement('div');
   message.className = `message ${kind}`;
   message.textContent = content;
   chatLog.append(message);
   chatLog.scrollTop = chatLog.scrollHeight;
+  // 용의자 전환 시 대화를 복원할 수 있도록 세션에도 기록한다.
+  if (record) {
+    session().messages.push({ kind, content });
+  }
   return message;
+}
+
+// 용의자 전환 시 세션에 기록된 메시지로 대화창을 다시 그린다.
+function rebuildChatLog(): void {
+  chatLog.replaceChildren();
+  for (const message of session().messages) {
+    const element = document.createElement('div');
+    element.className = `message ${message.kind}`;
+    element.textContent = message.content;
+    chatLog.append(element);
+  }
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function renderSuspectCard(): void {
+  const current = activeSuspect();
+  suspectPortrait.textContent = current.portrait;
+  suspectName.textContent = current.name;
+  suspectRole.textContent = current.role;
+  questionInput.placeholder = `${current.name}에게 질문한다…`;
+}
+
+function renderSuspectTabs(): void {
+  suspectTabs.replaceChildren();
+  if (activeCase.suspects.length <= 1) {
+    suspectTabs.hidden = true;
+    return;
+  }
+  suspectTabs.hidden = false;
+  for (const entry of activeCase.suspects) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = `suspect-tab${entry.id === activeSuspectId ? ' active' : ''}`;
+    tab.textContent = entry.name;
+    tab.disabled = isWaiting;
+    tab.addEventListener('click', () => switchSuspect(entry.id));
+    suspectTabs.append(tab);
+  }
+}
+
+function switchSuspect(suspectId: string): void {
+  if (isWaiting || suspectId === activeSuspectId) return;
+  activeSuspectId = suspectId;
+  session();
+  renderSuspectCard();
+  renderSuspectTabs();
+  rebuildChatLog();
+  renderStatus();
+  renderEvidence();
+  renderStatements();
 }
 
 // 검증을 통과한 답변만 타자기 효과로 공개한다. 모델 원문을 스트리밍으로
@@ -223,12 +303,12 @@ function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
 // 직접 질문을 쓰는 기본 조작을 가르치기 위해서다.
 function renderStarterQuestions(): void {
   starterQuestionsBox.replaceChildren();
-  if (gameState.turn > 0) {
+  if (session().history.length > 0) {
     starterQuestionsBox.hidden = true;
     return;
   }
   starterQuestionsBox.hidden = false;
-  for (const question of contract.starterQuestions) {
+  for (const question of activeSuspect().contract.starterQuestions) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'starter-chip';
@@ -271,14 +351,14 @@ function renderStatus(): void {
 // claim ID에서 직접 생성한다. 대화창·패널·엔진 상태가 같은 세계를 가리킨다.
 function renderStatements(): void {
   statementsList.replaceChildren();
-  if (contractState.statements.length === 0) {
+  if (session().contractState.statements.length === 0) {
     const item = document.createElement('li');
     item.textContent = '아직 없음';
     statementsList.append(item);
     return;
   }
-  for (const statement of contractState.statements) {
-    const claim = getClaim(contract, statement.claimId);
+  for (const statement of session().contractState.statements) {
+    const claim = getClaim(activeSuspect().contract, statement.claimId);
     if (!claim) continue;
     const item = document.createElement('li');
     item.textContent = `${statement.turn}턴 · ${claim.meaning}`;
@@ -423,27 +503,33 @@ function openEvidence(evidence: Evidence): void {
 }
 
 function handlePresentEvidence(evidence: Evidence): void {
+  const active = session();
   const outcome = applyEvidencePresentation(
-    contract,
-    contractState,
+    activeSuspect().contract,
+    active.contractState,
     evidence.id,
   );
-  contractState = outcome.state;
-  gameState = {
-    ...gameState,
-    presentedEvidenceIds: gameState.presentedEvidenceIds.includes(evidence.id)
-      ? gameState.presentedEvidenceIds
-      : [...gameState.presentedEvidenceIds, evidence.id],
-  };
+  active.contractState = outcome.state;
+  if (!active.presentedEvidenceIds.includes(evidence.id)) {
+    active.presentedEvidenceIds.push(evidence.id);
+  }
 
   appendMessage('system', `증거 제시: ${evidence.name}`);
   if (outcome.transition) {
     unlockedNotices.push(outcome.transition.unlockNotice);
-    stalledTurns = 0;
+    active.stalledTurns = 0;
     appendMessage(
       'system',
       '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
     );
+    // 앵커 대사: 전환 순간의 반응은 저작 대사로 보증한다.
+    if (outcome.transition.reactionLine) {
+      appendMessage('suspect', outcome.transition.reactionLine);
+      active.history.push({
+        role: 'assistant',
+        content: outcome.transition.reactionLine,
+      });
+    }
   } else {
     appendMessage('system', '이 증거만으로 새롭게 확인된 사실은 없다.');
   }
@@ -454,7 +540,7 @@ function handlePresentEvidence(evidence: Evidence): void {
 
 function renderEvidence(): void {
   evidenceList.replaceChildren();
-  for (const evidence of evidences) {
+  for (const evidence of activeCase.evidences) {
     const card = document.createElement('article');
     card.className = 'evidence-card';
 
@@ -473,7 +559,9 @@ function renderEvidence(): void {
     const presentButton = document.createElement('button');
     presentButton.type = 'button';
     presentButton.disabled = isWaiting;
-    presentButton.textContent = gameState.presentedEvidenceIds.includes(evidence.id)
+    presentButton.textContent = session().presentedEvidenceIds.includes(
+      evidence.id,
+    )
       ? '다시 제시'
       : '제시';
     presentButton.addEventListener('click', () => handlePresentEvidence(evidence));
@@ -489,37 +577,47 @@ questionForm.addEventListener('submit', async (event) => {
   const question = questionInput.value.trim();
   if (!question || isWaiting || !canAskQuestion(gameState)) return;
 
+  const active = session();
   appendMessage('detective', question);
-  history.push({ role: 'user', content: question });
+  active.history.push({ role: 'user', content: question });
   questionInput.value = '';
   isWaiting = true;
   renderStatus();
   renderEvidence();
+  renderSuspectTabs();
 
   const startedAt = performance.now();
-  const responseBubble = appendMessage('suspect', '');
+  const responseBubble = appendMessage('suspect', '', false);
   responseBubble.classList.add('streaming');
 
   try {
     const model = modelInput.value.trim() || defaultModel;
+    const current = activeSuspect();
     const result = await runSuspectTurn({
       provider,
       model,
-      contract,
-      state: contractState,
-      suspect: suspectPersona,
+      contract: current.contract,
+      state: active.contractState,
+      suspect: {
+        name: current.name,
+        role: current.role,
+        persona: current.persona,
+      },
       question,
-      recentTurns: history.slice(-6, -1),
-      lastCounterQuestion,
+      recentTurns: active.history.slice(-6, -1),
+      lastCounterQuestion: active.lastCounterQuestion,
       onDiscard: (violations) => {
         guardRetryCount += 1;
-        responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
+        responseBubble.textContent =
+          current.contract.language === 'en'
+            ? `(${current.name} pauses, choosing words.)`
+            : `(${current.name}가 잠시 말을 고른다.)`;
         console.warn('[렌더러] 대사 폐기', violations);
       },
     });
     totalInputTokens += result.inputTokens;
     totalOutputTokens += result.outputTokens;
-    lastCounterQuestion = result.plan.counterQuestion;
+    active.lastCounterQuestion = result.plan.counterQuestion;
     if (result.plan.usedFallback) {
       console.warn('[계획자] 결정론적 기본 계획 사용', result.plan);
     }
@@ -528,11 +626,12 @@ questionForm.addEventListener('submit', async (event) => {
     }
 
     // 커밋: 검증에 성공한 경우에만 상태와 진술을 함께 반영한다.
-    history.push({ role: 'assistant', content: result.line });
+    active.history.push({ role: 'assistant', content: result.line });
+    active.messages.push({ kind: 'suspect', content: result.line });
     gameState = recordCompletedTurn(gameState);
-    const statementCountBefore = contractState.statements.length;
-    contractState = recordStatements(
-      contractState,
+    const statementCountBefore = active.contractState.statements.length;
+    active.contractState = recordStatements(
+      active.contractState,
       result.plan.claimIds,
       gameState.turn,
     );
@@ -541,27 +640,27 @@ questionForm.addEventListener('submit', async (event) => {
     revealSuspectAnswer(responseBubble, result.line);
 
     // 정체 감지: 새 진술이 2턴 연속 없으면 수사 노트 힌트를 보여준다.
-    if (contractState.statements.length > statementCountBefore) {
-      stalledTurns = 0;
+    if (active.contractState.statements.length > statementCountBefore) {
+      active.stalledTurns = 0;
     } else {
-      stalledTurns += 1;
-      if (stalledTurns >= 2) {
+      active.stalledTurns += 1;
+      if (active.stalledTurns >= 2) {
         const hint = selectHint(
-          contract,
-          contractState,
-          gameState.presentedEvidenceIds,
-          shownHintIds,
+          current.contract,
+          active.contractState,
+          active.presentedEvidenceIds,
+          active.shownHintIds,
         );
         if (hint) {
-          shownHintIds.push(hint.id);
-          stalledTurns = 0;
+          active.shownHintIds.push(hint.id);
+          active.stalledTurns = 0;
           appendMessage('hint', `수사 노트 — ${hint.text}`);
         }
       }
     }
   } catch (error) {
     responseBubble.remove();
-    history.pop();
+    active.history.pop();
     const detail = error instanceof Error ? error.message : String(error);
     appendMessage(
       'error',
@@ -571,6 +670,7 @@ questionForm.addEventListener('submit', async (event) => {
     isWaiting = false;
     renderStatus();
     renderEvidence();
+    renderSuspectTabs();
     questionInput.focus();
   }
 });
@@ -594,5 +694,9 @@ evidenceDialog.addEventListener('click', (event) => {
   if (event.target === evidenceDialog) evidenceDialog.close();
 });
 
+renderSuspectCard();
+renderSuspectTabs();
+rebuildChatLog();
 renderEvidence();
 renderStatus();
+renderStatements();

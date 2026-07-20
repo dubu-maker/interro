@@ -25,6 +25,9 @@ export interface StageTransition {
   to: string;
   whenEvidencePresented: string;
   unlockNotice: string;
+  // 전환 직후 용의자가 내뱉는 저작 반응 대사(앵커 대사). LLM을 거치지
+  // 않아 극적 순간의 품질이 보장된다.
+  reactionLine?: string;
 }
 
 // 정체 시에만 노출되는 수사 노트 힌트. 힌트도 엔진이 소유한다 —

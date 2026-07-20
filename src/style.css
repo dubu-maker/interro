@@ -371,6 +371,37 @@ h1 {
   color: #8a5b5b;
 }
 
+.suspect-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.suspect-tabs[hidden] {
+  display: none;
+}
+
+.suspect-tab {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid #43506180;
+  border-radius: 0.5rem 0.5rem 0 0;
+  color: #8b98a8;
+  background: #1c222b;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.suspect-tab.active {
+  border-color: #b8a27b;
+  color: #d9c9a8;
+  background: #232a34;
+}
+
+.suspect-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .starter-questions {
   display: flex;
   flex-wrap: wrap;
