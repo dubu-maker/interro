@@ -13,6 +13,7 @@ import {
   createContractState,
   getClaim,
   recordStatements,
+  selectHint,
 } from './engine/contract';
 import {
   canAskQuestion,
@@ -41,6 +42,10 @@ let guardRetryCount = 0;
 let contractState = createContractState(hanSeraContract);
 // 증거 제시로 확정된 새 사실 알림 (전환 순서대로).
 const unlockedNotices: string[] = [];
+// 정체 감지: 새 진술·전환 없이 지나간 심문 턴 수. 2턴 연속 정체면
+// 수사 노트 힌트를 하나 보여주고 초기화한다.
+let stalledTurns = 0;
+const shownHintIds: string[] = [];
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -159,7 +164,7 @@ function getElement<T extends HTMLElement>(id: string): T {
 }
 
 function appendMessage(
-  kind: 'detective' | 'suspect' | 'system' | 'error',
+  kind: 'detective' | 'suspect' | 'system' | 'error' | 'hint',
   content: string,
 ): HTMLDivElement {
   const message = document.createElement('div');
@@ -390,6 +395,7 @@ function handlePresentEvidence(evidence: Evidence): void {
   appendMessage('system', `증거 제시: ${evidence.name}`);
   if (outcome.transition) {
     unlockedNotices.push(outcome.transition.unlockNotice);
+    stalledTurns = 0;
     appendMessage(
       'system',
       '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
@@ -478,6 +484,7 @@ questionForm.addEventListener('submit', async (event) => {
     // 커밋: 검증에 성공한 경우에만 상태와 진술을 함께 반영한다.
     history.push({ role: 'assistant', content: result.line });
     gameState = recordCompletedTurn(gameState);
+    const statementCountBefore = contractState.statements.length;
     contractState = recordStatements(
       contractState,
       result.plan.claimIds,
@@ -486,6 +493,26 @@ questionForm.addEventListener('submit', async (event) => {
     renderStatements();
     lastLatencyMs = performance.now() - startedAt;
     revealSuspectAnswer(responseBubble, result.line);
+
+    // 정체 감지: 새 진술이 2턴 연속 없으면 수사 노트 힌트를 보여준다.
+    if (contractState.statements.length > statementCountBefore) {
+      stalledTurns = 0;
+    } else {
+      stalledTurns += 1;
+      if (stalledTurns >= 2) {
+        const hint = selectHint(
+          hanSeraContract,
+          contractState,
+          gameState.presentedEvidenceIds,
+          shownHintIds,
+        );
+        if (hint) {
+          shownHintIds.push(hint.id);
+          stalledTurns = 0;
+          appendMessage('hint', `수사 노트 — ${hint.text}`);
+        }
+      }
+    }
   } catch (error) {
     responseBubble.remove();
     history.pop();

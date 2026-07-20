@@ -27,12 +27,27 @@ export interface StageTransition {
   unlockNotice: string;
 }
 
+// 정체 시에만 노출되는 수사 노트 힌트. 힌트도 엔진이 소유한다 —
+// LLM이 지어내지 않고, 아직 나오지 않은 진술이나 증거를 향해 저작된
+// 문장 중에서 결정론적으로 고른다.
+export interface CaseHint {
+  id: string;
+  text: string;
+  // 이 단계들에서만 유효하다.
+  stageIds: readonly string[];
+  // 지정 시, 해당 claim이 아직 기록되지 않았을 때만 유효하다.
+  targetClaimId?: string;
+  // 지정 시, 해당 증거가 아직 제시되지 않았을 때만 유효하다.
+  targetEvidenceId?: string;
+}
+
 export interface CaseContract {
   suspectId: string;
   initialStageId: string;
   stages: readonly DefenseStage[];
   transitions: readonly StageTransition[];
   claims: readonly CaseClaim[];
+  hints: readonly CaseHint[];
   // 시트 밖 세부 검사용 물질 명사. 렌더링된 대사에 이 토큰이 나오면
   // 승인된 의미나 심문관 질문에 근거가 있어야 한다.
   materialLexicon: readonly string[];
@@ -140,6 +155,27 @@ export function validatePlannedClaimIds(
     }
   }
   return { valid, rejected };
+}
+
+// 정체 상태에서 보여줄 힌트를 고른다. 현재 단계에서 유효하고, 목표
+// claim이 아직 기록되지 않았으며, 목표 증거가 아직 제시되지 않았고,
+// 이미 보여준 적 없는 첫 번째 힌트를 반환한다.
+export function selectHint(
+  contract: CaseContract,
+  state: ContractState,
+  presentedEvidenceIds: readonly string[],
+  shownHintIds: readonly string[],
+): CaseHint | undefined {
+  const recorded = new Set(state.statements.map((entry) => entry.claimId));
+  return contract.hints.find(
+    (hint) =>
+      hint.stageIds.includes(state.stageId) &&
+      !shownHintIds.includes(hint.id) &&
+      (hint.targetClaimId === undefined ||
+        !recorded.has(hint.targetClaimId)) &&
+      (hint.targetEvidenceId === undefined ||
+        !presentedEvidenceIds.includes(hint.targetEvidenceId)),
+  );
 }
 
 export function recordStatements(

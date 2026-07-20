@@ -5,6 +5,7 @@ import {
   applyEvidencePresentation,
   createContractState,
   recordStatements,
+  selectHint,
   validatePlannedClaimIds,
 } from './contract';
 
@@ -74,6 +75,44 @@ describe('사건 계약 엔진', () => {
 
     expect(outcome.contradictedClaimIds).toEqual(['C_WENT_HOME']);
     expect(outcome.state.statements[0]?.status).toBe('CONTRADICTED');
+  });
+
+  it('정체 힌트는 단계·미기록 진술·미제시 증거 조건으로 선택된다', () => {
+    let state = createContractState(hanSeraContract);
+    // S0: 주차장 기록을 향한 힌트가 먼저 나온다.
+    expect(selectHint(hanSeraContract, state, [], [])?.id).toBe(
+      'H_S0_PARKING',
+    );
+
+    // S1로 전진 + E1 제시됨: 관찰 힌트가 나온다.
+    state = applyEvidencePresentation(hanSeraContract, state, 'E1').state;
+    expect(selectHint(hanSeraContract, state, ['E1'], [])?.id).toBe(
+      'H_S1_OBSERVATION',
+    );
+
+    // 관찰 진술이 이미 기록됐으면 커피잔 힌트로 넘어간다.
+    state = recordStatements(state, ['C_HEARD_PHONE'], 2);
+    expect(selectHint(hanSeraContract, state, ['E1'], [])?.id).toBe(
+      'H_S1_COFFEE',
+    );
+
+    // 이미 보여준 힌트는 다시 나오지 않는다.
+    expect(
+      selectHint(hanSeraContract, state, ['E1'], ['H_S1_COFFEE'])?.id,
+    ).toBeUndefined();
+  });
+
+  it('모든 진술이 나오면 힌트도 소진된다', () => {
+    let state = createContractState(hanSeraContract);
+    state = applyEvidencePresentation(hanSeraContract, state, 'E1').state;
+    state = applyEvidencePresentation(hanSeraContract, state, 'E3').state;
+    state = recordStatements(
+      state,
+      ['C_HEARD_PHONE', 'C_MONEY_ARGUMENT', 'C_LEFT_ALIVE'],
+      3,
+    );
+
+    expect(selectHint(hanSeraContract, state, ['E1', 'E3'], [])).toBeUndefined();
   });
 
   it('같은 claim은 진술 기록에 중복 저장되지 않는다', () => {

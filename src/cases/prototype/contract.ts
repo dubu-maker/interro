@@ -113,6 +113,38 @@ export const hanSeraContract: CaseContract = {
       truth: 'true',
     },
   ],
+  hints: [
+    {
+      id: 'H_S0_PARKING',
+      text: '한세라의 퇴근 이후 동선을 물증으로 확인할 방법이 있을 것이다.',
+      stageIds: ['S0'],
+      targetEvidenceId: 'E1',
+    },
+    {
+      id: 'H_S1_OBSERVATION',
+      text: '한세라가 회사에 머문 27분 동안 무엇을 보고 들었는지는 아직 묻지 않았다.',
+      stageIds: ['S1', 'S2'],
+      targetClaimId: 'C_HEARD_PHONE',
+    },
+    {
+      id: 'H_S1_COFFEE',
+      text: '책상 위 커피잔은 아직 한세라 앞에 놓이지 않았다.',
+      stageIds: ['S1'],
+      targetEvidenceId: 'E3',
+    },
+    {
+      id: 'H_S2_TOPIC',
+      text: '두 사람이 마주 앉아 무슨 이야기를 나눴는지는 아직 나오지 않았다.',
+      stageIds: ['S2'],
+      targetClaimId: 'C_MONEY_ARGUMENT',
+    },
+    {
+      id: 'H_S2_EXIT',
+      text: '21시 38분부터 22시 5분까지의 동선 중 마지막 부분이 아직 설명되지 않았다.',
+      stageIds: ['S2'],
+      targetClaimId: 'C_LEFT_ALIVE',
+    },
+  ],
   materialLexicon: [
     '커피',
     '커피잔',
