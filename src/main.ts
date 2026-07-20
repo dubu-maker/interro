@@ -4,6 +4,10 @@ import { OllamaProvider } from './ai/ollamaProvider';
 import type { ChatMessage } from './ai/types';
 import { hanSeraContract } from './cases/prototype/contract';
 import {
+  hanSeraContractEn,
+  suspectEn,
+} from './cases/prototype/contractEn';
+import {
   briefing,
   evidences,
   suspect,
@@ -39,7 +43,17 @@ let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
 let guardRetryCount = 0;
 // 사건 계약 상태. 방어 단계와 claim 단위 진술 기록을 소유한다.
-let contractState = createContractState(hanSeraContract);
+// ?lang=en 으로 영어 플레이 테스트 모드를 켠다 (계약·프롬프트·검사기 전환).
+const playLanguage =
+  new URLSearchParams(window.location.search).get('lang') === 'en'
+    ? 'en'
+    : 'ko';
+const contract = playLanguage === 'en' ? hanSeraContractEn : hanSeraContract;
+const suspectPersona =
+  playLanguage === 'en'
+    ? suspectEn
+    : { name: suspect.name, role: suspect.role, persona: suspect.persona };
+let contractState = createContractState(contract);
 // 증거 제시로 확정된 새 사실 알림 (전환 순서대로).
 const unlockedNotices: string[] = [];
 // 정체 감지: 새 진술·전환 없이 지나간 심문 턴 수. 2턴 연속 정체면
@@ -90,6 +104,8 @@ app.innerHTML = `
             한세라가 맞은편 의자에 앉아 손을 모은 채 기다리고 있다.
           </div>
         </div>
+
+        <div id="starter-questions" class="starter-questions"></div>
 
         <form id="question-form" class="question-form">
           <textarea
@@ -142,6 +158,7 @@ app.innerHTML = `
 
 const chatLog = getElement<HTMLDivElement>('chat-log');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
+const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
 const questionForm = getElement<HTMLFormElement>('question-form');
 const questionInput = getElement<HTMLTextAreaElement>('question-input');
 const sendButton = getElement<HTMLButtonElement>('send-button');
@@ -198,7 +215,31 @@ function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
   step();
 }
 
+// 빈 입력창이 부담스러운 플레이어를 위한 시작 질문 제안. 첫 질문을
+// 보내면 사라진다. 클릭하면 입력창에 채워질 뿐 자동 제출하지 않는다 —
+// 직접 질문을 쓰는 기본 조작을 가르치기 위해서다.
+function renderStarterQuestions(): void {
+  starterQuestionsBox.replaceChildren();
+  if (gameState.turn > 0) {
+    starterQuestionsBox.hidden = true;
+    return;
+  }
+  starterQuestionsBox.hidden = false;
+  for (const question of contract.starterQuestions) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'starter-chip';
+    chip.textContent = question;
+    chip.addEventListener('click', () => {
+      questionInput.value = question;
+      questionInput.focus();
+    });
+    starterQuestionsBox.append(chip);
+  }
+}
+
 function renderStatus(): void {
+  renderStarterQuestions();
   turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}`;
   questionInput.disabled = isWaiting || !canAskQuestion(gameState);
   sendButton.disabled = isWaiting || !canAskQuestion(gameState);
@@ -234,7 +275,7 @@ function renderStatements(): void {
     return;
   }
   for (const statement of contractState.statements) {
-    const claim = getClaim(hanSeraContract, statement.claimId);
+    const claim = getClaim(contract, statement.claimId);
     if (!claim) continue;
     const item = document.createElement('li');
     item.textContent = `${statement.turn}턴 · ${claim.meaning}`;
@@ -380,7 +421,7 @@ function openEvidence(evidence: Evidence): void {
 
 function handlePresentEvidence(evidence: Evidence): void {
   const outcome = applyEvidencePresentation(
-    hanSeraContract,
+    contract,
     contractState,
     evidence.id,
   );
@@ -461,9 +502,9 @@ questionForm.addEventListener('submit', async (event) => {
     const result = await runSuspectTurn({
       provider,
       model,
-      contract: hanSeraContract,
+      contract,
       state: contractState,
-      suspect,
+      suspect: suspectPersona,
       question,
       recentTurns: history.slice(-6, -1),
       onDiscard: (violations) => {
@@ -501,7 +542,7 @@ questionForm.addEventListener('submit', async (event) => {
       stalledTurns += 1;
       if (stalledTurns >= 2) {
         const hint = selectHint(
-          hanSeraContract,
+          contract,
           contractState,
           gameState.presentedEvidenceIds,
           shownHintIds,

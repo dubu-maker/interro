@@ -97,6 +97,53 @@ describe('inspectRenderedLine', () => {
   });
 });
 
+describe('영어 플레이 모드 검사', () => {
+  const enInput = {
+    approvedMeanings: [
+      'I came back at 9:38 PM to pick up the tablet I had left behind.',
+    ],
+    question: 'Why did you come back to the office?',
+    materialLexicon: ['coffee', 'tablet', 'files', 'recording'],
+    counterQuestion: false,
+    language: 'en' as const,
+  };
+
+  it('승인된 의미의 영어 답변은 통과한다', () => {
+    expect(
+      inspectRenderedLine(
+        'I came back at 9:38 PM to get the tablet I left behind.',
+        enInput,
+      ),
+    ).toEqual({ safe: true, violations: [] });
+  });
+
+  it('12시간·24시간 표기를 같은 시각으로 취급한다', () => {
+    expect(
+      inspectRenderedLine('I returned at 21:38 for my tablet.', enInput).safe,
+    ).toBe(true);
+  });
+
+  it('시트 밖 물질 세부는 단어 경계로 검사한다', () => {
+    const result = inspectRenderedLine(
+      'I only touched his files that night.',
+      enInput,
+    );
+    expect(result.violations).toContain('시트 밖 세부: files');
+    // "recall"이 lexicon의 "recording"과 부분 일치해도 오탐하지 않는다.
+    expect(
+      inspectRenderedLine('I do not recall anything else.', enInput).safe,
+    ).toBe(true);
+  });
+
+  it('영어 모드에서 한글·키릴 누출을 잡는다', () => {
+    const result = inspectRenderedLine(
+      'I went straight home. температур',
+      enInput,
+    );
+    expect(result.violations).toContain('영어 외 문자');
+  });
+});
+
 describe('composeFallbackLine', () => {
   it('승인된 의미를 그대로 이어 붙인다', () => {
     expect(composeFallbackLine(s1Meanings)).toBe(

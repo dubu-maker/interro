@@ -43,6 +43,10 @@ export interface CaseHint {
 
 export interface CaseContract {
   suspectId: string;
+  // 심문 대사와 검증이 동작하는 언어. 계약·프롬프트·검사기가 함께 따른다.
+  language: 'ko' | 'en';
+  // 빈 입력창이 부담스러운 플레이어를 위한 시작 질문 제안 (심문 시작 전 표시).
+  starterQuestions: readonly string[];
   initialStageId: string;
   stages: readonly DefenseStage[];
   transitions: readonly StageTransition[];

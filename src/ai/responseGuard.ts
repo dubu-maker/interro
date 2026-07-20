@@ -67,19 +67,41 @@ export interface ResponseInspection {
   violations: string[];
 }
 
+// 영어 플레이용 메타 발언 패턴. 일상 영어와 겹치지 않는 표현만 쓴다.
+const forbiddenMetaPatternsEn: readonly RegExp[] = [
+  /\bas an ai\b/,
+  /\blanguage model\b/,
+  /\bprompt\b/,
+  /\brole-?play/,
+  /\bfictional\b/,
+  /\bsimulation\b/,
+  /\bmy programming\b/,
+  /i (?:cannot|can't) assist/,
+];
+
 export function inspectSuspectResponse(
   content: string,
   forbiddenClaims: readonly string[] = [],
   echoContext = '',
+  language: 'ko' | 'en' = 'ko',
 ): ResponseInspection {
   const normalized = content.toLocaleLowerCase();
   // 심문관 질문에 이미 등장한 단어를 용의자가 되받는 것은 메타 발언이 아니다.
   const normalizedContext = echoContext.toLocaleLowerCase();
-  const violations = forbiddenMetaTerms
-    .filter(
-      (term) => normalized.includes(term) && !normalizedContext.includes(term),
-    )
-    .map((term) => `메타 표현: ${term}`);
+  const violations =
+    language === 'en'
+      ? forbiddenMetaPatternsEn
+          .filter(
+            (pattern) =>
+              pattern.test(normalized) && !pattern.test(normalizedContext),
+          )
+          .map((pattern) => `메타 표현: ${pattern.source}`)
+      : forbiddenMetaTerms
+          .filter(
+            (term) =>
+              normalized.includes(term) && !normalizedContext.includes(term),
+          )
+          .map((term) => `메타 표현: ${term}`);
 
   violations.push(
     ...forbiddenClaims
@@ -87,14 +109,21 @@ export function inspectSuspectResponse(
       .map((claim) => `금지된 주장: ${claim}`),
   );
 
-  if (/(?![A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ])\p{L}/u.test(content)) {
-    violations.push('한국어 외 문자');
-  }
+  if (language === 'en') {
+    // 영어 플레이: 라틴 문자 외의 모든 문자(한글·한자·키릴 등)를 누출로 본다.
+    if (/(?![A-Za-z])\p{L}/u.test(content)) {
+      violations.push('영어 외 문자');
+    }
+  } else {
+    if (/(?![A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ])\p{L}/u.test(content)) {
+      violations.push('한국어 외 문자');
+    }
 
-  const latinLetters = (content.match(/[A-Za-z]/g) ?? []).length;
-  const hangulLetters = (content.match(/[가-힣]/g) ?? []).length;
-  if (latinLetters >= 20 && latinLetters > hangulLetters) {
-    violations.push('영어 중심 답변');
+    const latinLetters = (content.match(/[A-Za-z]/g) ?? []).length;
+    const hangulLetters = (content.match(/[가-힣]/g) ?? []).length;
+    if (latinLetters >= 20 && latinLetters > hangulLetters) {
+      violations.push('영어 중심 답변');
+    }
   }
 
   return { safe: violations.length === 0, violations };

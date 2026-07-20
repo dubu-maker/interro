@@ -6,6 +6,12 @@ import type { CaseContract } from '../../engine/contract';
 // 제시 순서가 어긋나면(예: S0에서 E3) 아무 일도 일어나지 않는다.
 export const hanSeraContract: CaseContract = {
   suspectId: 'sera',
+  language: 'ko',
+  starterQuestions: [
+    '사건 당일 밤 퇴근 이후의 행적을 말씀해 주세요.',
+    '이도윤 대표와는 어떤 사이였습니까?',
+    '마지막으로 대표를 본 게 언제입니까?',
+  ],
   initialStageId: 'S0',
   stages: [
     {

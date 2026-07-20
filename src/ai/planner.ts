@@ -28,10 +28,44 @@ export function buildPlannerPrompt(
   stage: DefenseStage,
   candidates: readonly CaseClaim[],
   recentTurns: readonly ChatMessage[],
+  language: 'ko' | 'en' = 'ko',
 ): string {
   const candidateList = candidates
     .map((claim) => `- ${claim.id}: ${claim.meaning}`)
     .join('\n');
+
+  if (language === 'en') {
+    const recentEn = recentTurns
+      .map(
+        (message) =>
+          `${message.role === 'user' ? 'Detective' : 'Suspect'}: ${message.content}`,
+      )
+      .join('\n');
+
+    return `You are the response planner for an interrogation scene. Decide how
+the suspect reacts to the detective's question. Do not write dialogue —
+output JSON only.
+
+Current defense strategy: ${stage.strategy}
+
+Available claim candidates (never pick outside these IDs):
+${candidateList}
+
+Recent conversation:
+${recentEn || '(none)'}
+
+Rules:
+- Pick 1-2 claimIds directly relevant to the detective's question.
+- If no candidate is relevant, return an empty array.
+- Set counterQuestion to true only when the suspect would defensively ask back.
+
+Output JSON only, with this schema:
+{"speechAct": "DENIAL" | "PARTIAL_ADMISSION" | "ADMISSION" | "DEFLECT",
+ "claimIds": string[],
+ "emotion": "CALM" | "NERVOUS" | "DEFENSIVE" | "SHAKEN",
+ "counterQuestion": boolean}`;
+  }
+
   const recent = recentTurns
     .map(
       (message) =>

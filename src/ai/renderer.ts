@@ -1,9 +1,16 @@
-import type { SuspectSheet } from '../engine/types';
 import type { ResponsePlan } from './planner';
 import { inspectSuspectResponse } from './responseGuard';
 
 // 2차 호출(렌더러): 승인된 의미만 자연스러운 대사로 표현한다.
 // 전체 사건 시트, 잠긴 사실, 범인 정보는 렌더러에 주지 않는다.
+
+export type PlayLanguage = 'ko' | 'en';
+
+export interface SuspectPersona {
+  name: string;
+  role: string;
+  persona: string;
+}
 
 const speechActDirectives: Record<ResponsePlan['speechAct'], string> = {
   DENIAL: '혐의나 주장을 부인한다.',
@@ -19,12 +26,53 @@ const emotionDirectives: Record<ResponsePlan['emotion'], string> = {
   SHAKEN: '동요해서 잠시 머뭇거리는 기색이 드러난다.',
 };
 
+const speechActDirectivesEn: Record<ResponsePlan['speechAct'], string> = {
+  DENIAL: 'Deny the allegation or claim.',
+  PARTIAL_ADMISSION: 'Admit only what is within the approved meanings.',
+  ADMISSION: 'Calmly acknowledge the approved meanings.',
+  DEFLECT: 'Avoid answering directly; keep it brief.',
+};
+
+const emotionDirectivesEn: Record<ResponsePlan['emotion'], string> = {
+  CALM: 'Calm, restrained tone.',
+  NERVOUS: 'Anxious; sentences get short and trail off.',
+  DEFENSIVE: 'Guarded, defensive tone.',
+  SHAKEN: 'Visibly rattled; brief hesitation shows.',
+};
+
 export function buildRendererPrompt(
-  suspect: SuspectSheet,
+  suspect: SuspectPersona,
   strategy: string,
   plan: ResponsePlan,
   approvedMeanings: readonly string[],
+  language: PlayLanguage = 'ko',
 ): string {
+  if (language === 'en') {
+    const meanings =
+      approvedMeanings.length > 0
+        ? approvedMeanings.map((meaning) => `- ${meaning}`).join('\n')
+        : '- (Nothing new to convey. Briefly hold to what you have already said.)';
+
+    return `You are ${suspect.name} (${suspect.role}), being questioned by a
+detective in an interrogation room. Never describe yourself as anyone or
+anything else.
+
+Voice and personality: ${suspect.persona}
+Current stance: ${strategy}
+Emotion: ${emotionDirectivesEn[plan.emotion]}
+Speech act: ${speechActDirectivesEn[plan.speechAct]}
+
+Meanings you may convey in this reply:
+${meanings}
+
+Rules:
+- Do not add any new people, times, places, objects, or actions beyond the meanings above.
+- Do not drop or contradict the approved meanings.
+- Reply in natural spoken English, 1-3 sentences.
+- Do not invite further questions or wrap up like a customer-service agent.
+${plan.counterQuestion ? '- You may end with one defensive counter-question.' : '- Do not end with a question. Do not use question marks.'}`;
+  }
+
   const meanings =
     approvedMeanings.length > 0
       ? approvedMeanings.map((meaning) => `- ${meaning}`).join('\n')
@@ -59,27 +107,79 @@ export interface RenderInspectionInput {
   question: string;
   materialLexicon: readonly string[];
   counterQuestion: boolean;
+  language?: PlayLanguage;
 }
 
-const timePattern = /\d{1,2}:\d{2}|\d{1,2}시(?:\s*\d{1,2}분)?/g;
+const timePattern =
+  /\d{1,2}:\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)|\d{1,2}시(?:\s*\d{1,2}분)?/gi;
 
-// "오후 9시"와 "21시", "21:38"과 "21시 38분"을 같은 시각으로 취급한다.
+function toHour24(hour: number, meridiem: string): number {
+  if (meridiem === 'pm' && hour < 12) return hour + 12;
+  if (meridiem === 'am' && hour === 12) return 0;
+  return hour;
+}
+
+function parseTimeExpression(
+  raw: string,
+): { hour: number; minute?: number } | undefined {
+  const value = raw.trim().toLocaleLowerCase();
+  let match = /^(\d{1,2}):(\d{2})\s*(am|pm)?$/.exec(value);
+  if (match) {
+    const meridiem = match[3];
+    const hour = meridiem
+      ? toHour24(Number(match[1]), meridiem)
+      : Number(match[1]);
+    return { hour, minute: Number(match[2]) };
+  }
+  match = /^(\d{1,2})\s*(am|pm)$/.exec(value);
+  if (match) {
+    return { hour: toHour24(Number(match[1]), match[2] ?? '') };
+  }
+  match = /^(\d{1,2})시(?:\s*(\d{1,2})분)?$/.exec(value);
+  if (match) {
+    return {
+      hour: Number(match[1]),
+      minute: match[2] !== undefined ? Number(match[2]) : undefined,
+    };
+  }
+  return undefined;
+}
+
+// "오후 9시"·"9:38 PM"·"21:38"·"21시 38분"을 같은 시각으로 취급한다.
 function timeExpressionAllowed(match: string, context: string): boolean {
   if (context.includes(match)) return true;
-  const colonForm = /^(\d{1,2}):(\d{2})$/.exec(match);
-  const hourForm = /^(\d{1,2})시(?:\s*(\d{1,2})분)?$/.exec(
-    colonForm ? `${Number(colonForm[1])}시 ${Number(colonForm[2])}분` : match,
-  );
-  if (!hourForm) return false;
-  const hour = Number(hourForm[1]);
-  const minute = hourForm[2] !== undefined ? Number(hourForm[2]) : undefined;
-  const twin = hour < 12 ? hour + 12 : hour - 12;
-  const variants = [hour, twin].flatMap((h) =>
-    minute !== undefined
-      ? [`${h}시 ${minute}분`, `${h}:${String(minute).padStart(2, '0')}`]
-      : [`${h}시`],
-  );
+  const parsed = parseTimeExpression(match);
+  if (!parsed) return false;
+  const twin = parsed.hour < 12 ? parsed.hour + 12 : parsed.hour - 12;
+  const hours = [parsed.hour, twin].filter((h) => h >= 0 && h <= 23);
+  const variants: string[] = [];
+  for (const hour of hours) {
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+    const meridiem = hour < 12 ? 'am' : 'pm';
+    if (parsed.minute !== undefined) {
+      const padded = String(parsed.minute).padStart(2, '0');
+      variants.push(
+        `${hour}시 ${parsed.minute}분`,
+        `${hour}:${padded}`,
+        `${hour12}:${padded} ${meridiem}`,
+        `${hour12}:${padded}${meridiem}`,
+      );
+    } else {
+      variants.push(`${hour}시`, `${hour12} ${meridiem}`, `${hour12}${meridiem}`);
+    }
+  }
   return variants.some((variant) => context.includes(variant));
+}
+
+function materialTokenPresent(
+  text: string,
+  token: string,
+  language: PlayLanguage,
+): boolean {
+  if (language === 'en') {
+    return new RegExp(`\\b${token}\\b`, 'i').test(text);
+  }
+  return text.includes(token);
 }
 
 // 렌더링된 대사가 승인된 의미 밖의 물질적 세부를 추가했는지 검사한다.
@@ -88,6 +188,7 @@ export function inspectRenderedLine(
   content: string,
   input: RenderInspectionInput,
 ): RenderInspection {
+  const language = input.language ?? 'ko';
   const violations: string[] = [];
   const allowedContext = (
     input.approvedMeanings.join(' ') + ' ' + input.question
@@ -96,7 +197,10 @@ export function inspectRenderedLine(
 
   for (const token of input.materialLexicon) {
     const lowered = token.toLocaleLowerCase();
-    if (normalized.includes(lowered) && !allowedContext.includes(lowered)) {
+    if (
+      materialTokenPresent(normalized, lowered, language) &&
+      !materialTokenPresent(allowedContext, lowered, language)
+    ) {
       violations.push(`시트 밖 세부: ${token}`);
     }
   }
@@ -111,7 +215,7 @@ export function inspectRenderedLine(
     violations.push('허용되지 않은 반문');
   }
 
-  const surface = inspectSuspectResponse(content, [], allowedContext);
+  const surface = inspectSuspectResponse(content, [], allowedContext, language);
   violations.push(...surface.violations);
 
   return { safe: violations.length === 0, violations };
@@ -121,9 +225,12 @@ export function inspectRenderedLine(
 // 표현은 딱딱해도 계약 위반이 원천적으로 불가능하다.
 export function composeFallbackLine(
   approvedMeanings: readonly string[],
+  language: PlayLanguage = 'ko',
 ): string {
   if (approvedMeanings.length === 0) {
-    return '그 부분은 이미 말씀드린 것 외에 더 드릴 말이 없습니다.';
+    return language === 'en'
+      ? 'I have nothing to add beyond what I have already told you.'
+      : '그 부분은 이미 말씀드린 것 외에 더 드릴 말이 없습니다.';
   }
   return approvedMeanings
     .map((meaning) => (meaning.endsWith('.') ? meaning : `${meaning}.`))

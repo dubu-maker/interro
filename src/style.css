@@ -371,6 +371,32 @@ h1 {
   color: #8a5b5b;
 }
 
+.starter-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.starter-questions[hidden] {
+  display: none;
+}
+
+.starter-chip {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #43506180;
+  border-radius: 1rem;
+  color: #9fb0c3;
+  background: #232a34;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.starter-chip:hover {
+  border-color: #b8a27b;
+  color: #d9c9a8;
+}
+
 .message.hint {
   align-self: center;
   max-width: 85%;

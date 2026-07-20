@@ -1,6 +1,5 @@
 import type { CaseContract, ContractState } from '../engine/contract';
 import { allowedClaims, getClaim, getStage } from '../engine/contract';
-import type { SuspectSheet } from '../engine/types';
 import {
   buildFallbackPlan,
   buildPlannerPrompt,
@@ -11,6 +10,7 @@ import {
   buildRendererPrompt,
   composeFallbackLine,
   inspectRenderedLine,
+  type SuspectPersona,
 } from './renderer';
 import { stripClosingInvites } from './responseGuard';
 import type { ChatMessage, ModelProvider } from './types';
@@ -40,7 +40,7 @@ export interface SuspectTurnRequest {
   model: string;
   contract: CaseContract;
   state: ContractState;
-  suspect: SuspectSheet;
+  suspect: SuspectPersona;
   question: string;
   recentTurns: readonly ChatMessage[];
   // 렌더링이 폐기될 때마다 호출된다 (UI 표시용).
@@ -61,6 +61,7 @@ export async function runSuspectTurn(
     stage,
     candidates,
     request.recentTurns,
+    contract.language,
   );
   let plan: ResponsePlan | undefined;
   let plannerAttempts = 0;
@@ -89,12 +90,14 @@ export async function runSuspectTurn(
     stage.strategy,
     plan,
     approvedMeanings,
+    contract.language,
   );
   const inspectionInput = {
     approvedMeanings,
     question,
     materialLexicon: contract.materialLexicon,
     counterQuestion: plan.counterQuestion,
+    language: contract.language,
   };
   const discardedRenders: DiscardedRender[] = [];
   let line = '';
@@ -112,7 +115,11 @@ export async function runSuspectTurn(
     });
     inputTokens += rendered.inputTokens ?? 0;
     outputTokens += rendered.outputTokens ?? 0;
-    line = stripClosingInvites(rendered.content);
+    // 상담원식 마무리 제거는 한국어 전용. 영어는 물음표 규칙이 대신 막는다.
+    line =
+      contract.language === 'ko'
+        ? stripClosingInvites(rendered.content)
+        : rendered.content.trim();
     const inspection = inspectRenderedLine(line, inspectionInput);
     if (inspection.safe) {
       lineAccepted = true;
@@ -125,7 +132,7 @@ export async function runSuspectTurn(
     }
   }
   if (!lineAccepted) {
-    line = composeFallbackLine(approvedMeanings);
+    line = composeFallbackLine(approvedMeanings, contract.language);
   }
 
   return {
