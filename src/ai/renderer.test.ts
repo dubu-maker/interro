@@ -61,6 +61,27 @@ describe('inspectRenderedLine', () => {
     expect(result.violations.some((v) => v.includes('시간'))).toBe(true);
   });
 
+  it('12시간제·콜론 표기는 같은 시각으로 허용된다', () => {
+    expect(
+      inspect('저녁 9시에 퇴근해서 집으로 갔습니다.', {
+        approvedMeanings: ['21시에 퇴근해서 곧장 집으로 갔다.'],
+      }).safe,
+    ).toBe(true);
+    expect(
+      inspect('21:38에 다시 회사로 왔습니다.', {
+        approvedMeanings: [
+          '21시 38분에 두고 온 태블릿을 가지러 회사로 돌아왔다.',
+        ],
+        question: '왜 돌아왔습니까?',
+      }).safe,
+    ).toBe(true);
+    expect(
+      inspect('오후 11시에 회사에 있었습니다.', {
+        approvedMeanings: ['21시에 퇴근해서 곧장 집으로 갔다.'],
+      }).safe,
+    ).toBe(false);
+  });
+
   it('counterQuestion이 false면 질문형 종결이 거부된다', () => {
     const result = inspect('태블릿을 가지러 돌아왔습니다. 왜 그러시죠?');
     expect(result.safe).toBe(false);

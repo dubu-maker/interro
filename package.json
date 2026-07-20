@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "redteam": "tsx src/test/redteam.ts",
+    "simulate": "tsx src/test/simulate.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

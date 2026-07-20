@@ -63,6 +63,25 @@ export interface RenderInspectionInput {
 
 const timePattern = /\d{1,2}:\d{2}|\d{1,2}시(?:\s*\d{1,2}분)?/g;
 
+// "오후 9시"와 "21시", "21:38"과 "21시 38분"을 같은 시각으로 취급한다.
+function timeExpressionAllowed(match: string, context: string): boolean {
+  if (context.includes(match)) return true;
+  const colonForm = /^(\d{1,2}):(\d{2})$/.exec(match);
+  const hourForm = /^(\d{1,2})시(?:\s*(\d{1,2})분)?$/.exec(
+    colonForm ? `${Number(colonForm[1])}시 ${Number(colonForm[2])}분` : match,
+  );
+  if (!hourForm) return false;
+  const hour = Number(hourForm[1]);
+  const minute = hourForm[2] !== undefined ? Number(hourForm[2]) : undefined;
+  const twin = hour < 12 ? hour + 12 : hour - 12;
+  const variants = [hour, twin].flatMap((h) =>
+    minute !== undefined
+      ? [`${h}시 ${minute}분`, `${h}:${String(minute).padStart(2, '0')}`]
+      : [`${h}시`],
+  );
+  return variants.some((variant) => context.includes(variant));
+}
+
 // 렌더링된 대사가 승인된 의미 밖의 물질적 세부를 추가했는지 검사한다.
 // 심문관 질문에 이미 등장한 세부를 되받는 것은 허용한다.
 export function inspectRenderedLine(
@@ -83,7 +102,7 @@ export function inspectRenderedLine(
   }
 
   for (const match of content.match(timePattern) ?? []) {
-    if (!allowedContext.includes(match.toLocaleLowerCase())) {
+    if (!timeExpressionAllowed(match.toLocaleLowerCase(), allowedContext)) {
       violations.push(`승인되지 않은 시간: ${match}`);
     }
   }

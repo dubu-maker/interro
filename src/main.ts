@@ -1,17 +1,6 @@
 import './style.css';
+import { runSuspectTurn } from './ai/interrogationPipeline';
 import { OllamaProvider } from './ai/ollamaProvider';
-import {
-  buildFallbackPlan,
-  buildPlannerPrompt,
-  parsePlannerResponse,
-  type ResponsePlan,
-} from './ai/planner';
-import {
-  buildRendererPrompt,
-  composeFallbackLine,
-  inspectRenderedLine,
-} from './ai/renderer';
-import { stripClosingInvites } from './ai/responseGuard';
 import type { ChatMessage } from './ai/types';
 import { hanSeraContract } from './cases/prototype/contract';
 import {
@@ -20,11 +9,9 @@ import {
   suspect,
 } from './cases/prototype/fixture';
 import {
-  allowedClaims,
   applyEvidencePresentation,
   createContractState,
   getClaim,
-  getStage,
   recordStatements,
 } from './engine/contract';
 import {
@@ -465,96 +452,40 @@ questionForm.addEventListener('submit', async (event) => {
 
   try {
     const model = modelInput.value.trim() || defaultModel;
-    const stage = getStage(hanSeraContract, contractState.stageId);
-    const candidates = allowedClaims(hanSeraContract, contractState);
-
-    // 1차 호출: 계획자. 후보 중에서 claim ID와 화행만 고른다.
-    const plannerPrompt = buildPlannerPrompt(
-      stage,
-      candidates,
-      history.slice(-6, -1),
-    );
-    let plan: ResponsePlan | undefined;
-    for (let attempt = 0; attempt < 2 && !plan; attempt += 1) {
-      const planResponse = await provider.chat({
-        systemPrompt: plannerPrompt,
-        messages: [{ role: 'user', content: question }],
-        model,
-        format: 'json',
-        temperature: 0,
-      });
-      totalInputTokens += planResponse.inputTokens ?? 0;
-      totalOutputTokens += planResponse.outputTokens ?? 0;
-      plan = parsePlannerResponse(planResponse.content, candidates);
-      if (!plan) {
-        console.warn('[계획자] 파싱 실패, 재시도', {
-          content: planResponse.content,
-        });
-      }
-    }
-    if (!plan) {
-      plan = buildFallbackPlan(stage, candidates);
-      console.warn('[계획자] 결정론적 기본 계획 사용', plan);
-    }
-    const approvedMeanings = plan.claimIds
-      .map((claimId) => getClaim(hanSeraContract, claimId)?.meaning)
-      .filter((meaning): meaning is string => meaning !== undefined);
-
-    // 2차 호출: 렌더러. 승인된 의미만 대사로 표현한다.
-    const rendererPrompt = buildRendererPrompt(
+    const result = await runSuspectTurn({
+      provider,
+      model,
+      contract: hanSeraContract,
+      state: contractState,
       suspect,
-      stage.strategy,
-      plan,
-      approvedMeanings,
-    );
-    const inspectionInput = {
-      approvedMeanings,
       question,
-      materialLexicon: hanSeraContract.materialLexicon,
-      counterQuestion: plan.counterQuestion,
-    };
-    let line = '';
-    let lineAccepted = false;
-    for (let attempt = 0; attempt < 2 && !lineAccepted; attempt += 1) {
-      const rendered = await provider.chat({
-        systemPrompt:
-          attempt === 0
-            ? rendererPrompt
-            : `${rendererPrompt}\n\n직전 답변은 규칙 위반으로 폐기되었다. 승인된 의미만 다시 표현한다.`,
-        messages: [{ role: 'user', content: question }],
-        model,
-      });
-      totalInputTokens += rendered.inputTokens ?? 0;
-      totalOutputTokens += rendered.outputTokens ?? 0;
-      line = stripClosingInvites(rendered.content);
-      const inspection = inspectRenderedLine(line, inspectionInput);
-      if (inspection.safe) {
-        lineAccepted = true;
-      } else {
+      recentTurns: history.slice(-6, -1),
+      onDiscard: (violations) => {
         guardRetryCount += 1;
         responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
-        console.warn('[렌더러] 대사 폐기', {
-          violations: inspection.violations,
-          content: rendered.content,
-        });
-      }
+        console.warn('[렌더러] 대사 폐기', violations);
+      },
+    });
+    totalInputTokens += result.inputTokens;
+    totalOutputTokens += result.outputTokens;
+    if (result.plan.usedFallback) {
+      console.warn('[계획자] 결정론적 기본 계획 사용', result.plan);
     }
-    if (!lineAccepted) {
-      line = composeFallbackLine(approvedMeanings);
-      console.warn('[렌더러] 고정 대사 사용', { line });
+    if (result.usedLineFallback) {
+      console.warn('[렌더러] 고정 대사 사용', { line: result.line });
     }
 
     // 커밋: 검증에 성공한 경우에만 상태와 진술을 함께 반영한다.
-    history.push({ role: 'assistant', content: line });
+    history.push({ role: 'assistant', content: result.line });
     gameState = recordCompletedTurn(gameState);
     contractState = recordStatements(
       contractState,
-      plan.claimIds,
+      result.plan.claimIds,
       gameState.turn,
     );
     renderStatements();
     lastLatencyMs = performance.now() - startedAt;
-    revealSuspectAnswer(responseBubble, line);
+    revealSuspectAnswer(responseBubble, result.line);
   } catch (error) {
     responseBubble.remove();
     history.pop();
