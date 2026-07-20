@@ -335,6 +335,37 @@ h1 {
   line-height: 1.55;
 }
 
+.statements-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #343b45;
+}
+
+.statements-panel h3 {
+  font-size: 0.85rem;
+}
+
+.statements-panel .panel-note {
+  margin: 0.15rem 0 0.5rem;
+  color: #7d8794;
+  font-size: 0.72rem;
+}
+
+.statements-panel ul {
+  margin: 0;
+  padding-left: 1.15rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  color: #9aa3ad;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.statements-panel li + li {
+  margin-top: 0.4rem;
+}
+
 .evidence-dialog {
   width: min(52rem, calc(100% - 2rem));
   max-height: calc(100vh - 2rem);

@@ -5,6 +5,7 @@ import {
   buildResponseRepairPrompt,
   guardedFallback,
   inspectSuspectResponse,
+  stripClosingInvites,
 } from './ai/responseGuard';
 import type { ChatMessage } from './ai/types';
 import {
@@ -36,6 +37,9 @@ let totalInputTokens = 0;
 let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
 let guardRetryCount = 0;
+// 용의자 진술 기록. 엔진이 보증하는 사실이 아니라 인물의 주장이며,
+// 참·거짓 판정 없이 턴 순서대로 쌓는다.
+const suspectStatements: { turn: number; content: string }[] = [];
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -103,6 +107,11 @@ app.innerHTML = `
           <h3>확인된 새 사실</h3>
           <ul id="unlocked-list"><li>아직 없음</li></ul>
         </div>
+        <div class="statements-panel">
+          <h3>용의자 진술</h3>
+          <p class="panel-note">용의자의 주장일 뿐, 확인된 사실이 아니다.</p>
+          <ul id="statements-list"><li>아직 없음</li></ul>
+        </div>
       </aside>
     </div>
 
@@ -134,6 +143,7 @@ const modelInput = getElement<HTMLInputElement>('model-input');
 const turnStatus = getElement<HTMLSpanElement>('turn-status');
 const sessionMetrics = getElement<HTMLSpanElement>('session-metrics');
 const unlockedList = getElement<HTMLUListElement>('unlocked-list');
+const statementsList = getElement<HTMLUListElement>('statements-list');
 const resetButton = getElement<HTMLButtonElement>('reset-button');
 const evidenceDialog = getElement<HTMLDialogElement>('evidence-dialog');
 const viewerTitle = getElement<HTMLHeadingElement>('viewer-title');
@@ -157,6 +167,29 @@ function appendMessage(
   chatLog.append(message);
   chatLog.scrollTop = chatLog.scrollHeight;
   return message;
+}
+
+// 검증을 통과한 답변만 타자기 효과로 공개한다. 모델 원문을 스트리밍으로
+// 바로 노출하면 반려될 답변(날조·누설 후보)을 플레이어가 먼저 읽게 된다.
+function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
+  const revealStartedAt = performance.now();
+  const charsPerSecond = 80;
+  const step = (): void => {
+    const elapsedSeconds = (performance.now() - revealStartedAt) / 1000;
+    const index = Math.min(
+      content.length,
+      Math.ceil(elapsedSeconds * charsPerSecond),
+    );
+    bubble.textContent = content.slice(0, index);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    if (index < content.length) {
+      window.setTimeout(step, 24);
+    } else {
+      bubble.classList.remove('streaming');
+    }
+  };
+  bubble.textContent = '';
+  step();
 }
 
 function renderStatus(): void {
@@ -185,6 +218,22 @@ function renderStatus(): void {
       unlockedList.append(item);
     }
   }
+}
+
+function renderStatements(): void {
+  statementsList.replaceChildren();
+  if (suspectStatements.length === 0) {
+    const item = document.createElement('li');
+    item.textContent = '아직 없음';
+    statementsList.append(item);
+    return;
+  }
+  for (const statement of suspectStatements) {
+    const item = document.createElement('li');
+    item.textContent = `${statement.turn}턴 · ${statement.content}`;
+    statementsList.append(item);
+  }
+  statementsList.scrollTop = statementsList.scrollHeight;
 }
 
 function stopParkingPlayback(): void {
@@ -389,45 +438,60 @@ questionForm.addEventListener('submit', async (event) => {
       gameState.unlockedSecretIds,
     );
     const model = modelInput.value.trim() || defaultModel;
-    const streamIntoBubble = (delta: string): void => {
-      responseBubble.textContent += delta;
-      chatLog.scrollTop = chatLog.scrollHeight;
-    };
     let response = await provider.chat({
       systemPrompt,
       messages: history,
       model,
-      onDelta: streamIntoBubble,
     });
     totalInputTokens += response.inputTokens ?? 0;
     totalOutputTokens += response.outputTokens ?? 0;
 
-    if (
-      !inspectSuspectResponse(response.content, suspect.forbiddenClaims).safe
-    ) {
+    const firstInspection = inspectSuspectResponse(
+      response.content,
+      suspect.forbiddenClaims,
+      question,
+    );
+    if (!firstInspection.safe) {
+      console.warn('[안전망] 1차 답변 폐기', {
+        violations: firstInspection.violations,
+        content: response.content,
+      });
       guardRetryCount += 1;
-      responseBubble.textContent = '';
+      responseBubble.textContent = '(한세라가 잠시 말을 고른다.)';
       response = await provider.chat({
-        systemPrompt: buildResponseRepairPrompt(systemPrompt),
+        systemPrompt: buildResponseRepairPrompt(
+          systemPrompt,
+          firstInspection.violations,
+        ),
         messages: history,
         model,
-        onDelta: streamIntoBubble,
       });
       totalInputTokens += response.inputTokens ?? 0;
       totalOutputTokens += response.outputTokens ?? 0;
     }
 
-    const safeContent = inspectSuspectResponse(
-      response.content,
-      suspect.forbiddenClaims,
-    ).safe
-      ? response.content
-      : guardedFallback;
-    responseBubble.classList.remove('streaming');
-    responseBubble.textContent = safeContent;
+    const finalInspection = firstInspection.safe
+      ? firstInspection
+      : inspectSuspectResponse(
+          response.content,
+          suspect.forbiddenClaims,
+          question,
+        );
+    if (!finalInspection.safe) {
+      console.warn('[안전망] 재생성 답변도 폐기, 폴백 사용', {
+        violations: finalInspection.violations,
+        content: response.content,
+      });
+    }
+    const safeContent = stripClosingInvites(
+      finalInspection.safe ? response.content : guardedFallback,
+    );
     history.push({ role: 'assistant', content: safeContent });
     gameState = recordCompletedTurn(gameState);
+    suspectStatements.push({ turn: gameState.turn, content: safeContent });
+    renderStatements();
     lastLatencyMs = performance.now() - startedAt;
+    revealSuspectAnswer(responseBubble, safeContent);
   } catch (error) {
     responseBubble.remove();
     history.pop();
