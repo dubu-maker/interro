@@ -18,6 +18,11 @@ import {
   type VerdictResult,
 } from './engine/verdict';
 import {
+  availableSpots,
+  judgeSceneRuling,
+  type DeathRulingChoice,
+} from './engine/scene';
+import {
   applyEvidencePresentation,
   createContractState,
   getClaim,
@@ -110,6 +115,20 @@ const reportEvidenceIds = new Set<string>();
 let selectedEvidence: Evidence | undefined;
 // 탁자 위에 올려 둔 증거. 다음 추궁(질문 전송)과 함께 작동한다.
 let slottedEvidence: Evidence | undefined;
+// 막 구조: 현장(1막)이 있으면 현장에서 시작하고, 타살 입건 후 심문(2막).
+let phase: 'scene' | 'interrogation' = activeCase.scene
+  ? 'scene'
+  : 'interrogation';
+let caseOpened = !activeCase.scene;
+const examinedSpotIds = new Set<string>();
+// 현장 오판(사고·자살 종결) 시 저장되는 결말.
+let sceneEnd: { title: string; epilogue: string } | undefined;
+let sceneRulingChoice: DeathRulingChoice | '' = '';
+const sceneRulingEvidenceIds = new Set<string>();
+
+function isCaseEnded(): boolean {
+  return verdict !== undefined || sceneEnd !== undefined;
+}
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
 app.innerHTML = `
@@ -128,6 +147,7 @@ app.innerHTML = `
           <span>Ollama 모델</span>
           <input id="model-input" value="${defaultModel}" />
         </label>
+        <button id="phase-toggle-button" class="reset-button" type="button" hidden>현장 재조사</button>
         <button id="report-button" class="report-button" type="button">사건 종결</button>
         <button id="reset-button" class="reset-button" type="button">새 심문</button>
       </div>
@@ -140,6 +160,11 @@ app.innerHTML = `
 
     <div class="workspace">
       <section class="interrogation-panel">
+        <div id="scene-panel" class="scene-panel" hidden>
+          <p id="scene-intro" class="scene-intro"></p>
+          <div id="scene-log" class="scene-log"></div>
+          <div id="scene-spots" class="scene-spots"></div>
+        </div>
         <div id="suspect-tabs" class="suspect-tabs"></div>
         <div class="suspect-card">
           <div id="suspect-portrait" class="portrait" aria-hidden="true"></div>
@@ -227,6 +252,11 @@ app.innerHTML = `
 `;
 
 const chatLog = getElement<HTMLDivElement>('chat-log');
+const scenePanel = getElement<HTMLDivElement>('scene-panel');
+const sceneIntro = getElement<HTMLParagraphElement>('scene-intro');
+const sceneLog = getElement<HTMLDivElement>('scene-log');
+const sceneSpots = getElement<HTMLDivElement>('scene-spots');
+const phaseToggleButton = getElement<HTMLButtonElement>('phase-toggle-button');
 const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
 const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
 const suspectName = getElement<HTMLHeadingElement>('suspect-name');
@@ -301,15 +331,15 @@ function renderSuspectCard(): void {
 
   // 용의선상 제외: 남은 턴을 아끼는 대신, 진범을 놓아주면 그대로 패배한다.
   releaseButton.hidden =
-    activeCase.motiveOptions.length === 0 || verdict !== undefined;
+    activeCase.motiveOptions.length === 0 || isCaseEnded();
   releaseButton.disabled =
-    isWaiting || releasedSuspectIds.has(current.id) || verdict !== undefined;
+    isWaiting || releasedSuspectIds.has(current.id) || isCaseEnded();
   releaseButton.textContent = releasedSuspectIds.has(current.id)
     ? '제외됨'
     : '용의선상 제외';
   // 재판 회부: 이 사람을 범인으로 고정하고 기소한다.
   indictButton.hidden = releaseButton.hidden;
-  indictButton.disabled = isWaiting || verdict !== undefined;
+  indictButton.disabled = isWaiting || isCaseEnded();
 }
 
 function renderSuspectTabs(): void {
@@ -332,6 +362,194 @@ function renderSuspectTabs(): void {
     tab.addEventListener('click', () => switchSuspect(entry.id));
     suspectTabs.append(tab);
   }
+}
+
+// ── 1막: 현장 수사 ─────────────────────────────────────────────
+function appendSceneEntry(title: string, text: string): void {
+  const entry = document.createElement('div');
+  entry.className = 'scene-entry';
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  const body = document.createElement('p');
+  body.textContent = text;
+  entry.append(heading, body);
+  sceneLog.append(entry);
+  sceneLog.scrollTop = sceneLog.scrollHeight;
+}
+
+function renderSceneSpots(): void {
+  if (!activeCase.scene) return;
+  sceneSpots.replaceChildren();
+  for (const spot of availableSpots(activeCase.scene, examinedSpotIds)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `scene-spot${examinedSpotIds.has(spot.id) ? ' examined' : ''}`;
+    const name = document.createElement('strong');
+    name.textContent = spot.name;
+    const hint = document.createElement('span');
+    hint.textContent = examinedSpotIds.has(spot.id) ? '조사 완료' : spot.hint;
+    button.append(name, hint);
+    button.disabled = examinedSpotIds.has(spot.id) || isCaseEnded();
+    button.addEventListener('click', () => examineSpot(spot.id));
+    sceneSpots.append(button);
+  }
+}
+
+function examineSpot(spotId: string): void {
+  const scene = activeCase.scene;
+  if (!scene || examinedSpotIds.has(spotId) || isCaseEnded()) return;
+  const spot = scene.spots.find((entry) => entry.id === spotId);
+  if (!spot) return;
+  examinedSpotIds.add(spotId);
+  appendSceneEntry(spot.name, spot.examText);
+  if (spot.grantsEvidenceId && !acquiredEvidenceIds.has(spot.grantsEvidenceId)) {
+    acquiredEvidenceIds.add(spot.grantsEvidenceId);
+    const evidence = activeCase.evidences.find(
+      (entry) => entry.id === spot.grantsEvidenceId,
+    );
+    appendSceneEntry('증거 확보', evidence?.name ?? spot.grantsEvidenceId);
+    renderEvidence();
+  }
+  renderSceneSpots();
+}
+
+// 막 전환에 따라 패널 표시를 전환한다.
+function applyPhaseVisibility(): void {
+  const inScene = phase === 'scene';
+  scenePanel.hidden = !inScene;
+  if (inScene) suspectTabs.hidden = true;
+  const interrogationBlocks = [
+    document.querySelector('.suspect-card'),
+    chatLog,
+    evidenceSlot,
+    starterQuestionsBox,
+    questionForm,
+  ];
+  for (const block of interrogationBlocks) {
+    if (block instanceof HTMLElement) block.hidden = inScene;
+  }
+  if (inScene && activeCase.scene) {
+    sceneIntro.textContent = activeCase.scene.intro;
+    renderSceneSpots();
+  }
+  phaseToggleButton.hidden =
+    !activeCase.scene || !caseOpened || isCaseEnded();
+  phaseToggleButton.textContent =
+    phase === 'scene' ? '심문으로 돌아가기' : '현장 재조사';
+}
+
+function switchPhase(): void {
+  if (!caseOpened || isWaiting) return;
+  phase = phase === 'scene' ? 'interrogation' : 'scene';
+  applyPhaseVisibility();
+  renderStatus();
+  renderEvidence();
+  if (phase === 'interrogation') {
+    renderSuspectTabs();
+    renderSuspectCard();
+  }
+}
+
+// 현장 판단 폼: 사고사·자살·타살 + 근거 증거.
+function renderSceneRulingForm(): void {
+  reportContent.replaceChildren();
+  reportSubmit.hidden = false;
+  reportSubmit.textContent = '판단 제출';
+  reportNote.textContent = '오판하면 사건은 그대로 종결된다.';
+
+  const deathOptions: { id: DeathRulingChoice; label: string }[] = [
+    { id: 'accident', label: '사고사 — 넘어지며 책상에 부딪힌 사고로 종결' },
+    { id: 'suicide', label: '자살 — 자해로 판단하고 종결' },
+    { id: 'homicide', label: '타살 — 살인 사건으로 입건하고 수사를 확대' },
+  ];
+  const heading = document.createElement('h3');
+  heading.className = 'report-heading';
+  heading.textContent = '이 죽음은 무엇입니까';
+  reportContent.append(
+    heading,
+    optionRow('death-type', deathOptions, sceneRulingChoice, (id) => {
+      sceneRulingChoice = id as DeathRulingChoice;
+      reportSubmit.disabled = !sceneRulingReady();
+    }),
+  );
+
+  const evidenceHeading = document.createElement('h3');
+  evidenceHeading.className = 'report-heading';
+  evidenceHeading.textContent = '판단의 근거';
+  reportContent.append(
+    evidenceHeading,
+    optionRow(
+      'ruling-evidence',
+      activeCase.evidences
+        .filter((entry) => acquiredEvidenceIds.has(entry.id))
+        .map((entry) => ({ id: entry.id, label: entry.name })),
+      '',
+      (id) => {
+        if (sceneRulingEvidenceIds.has(id)) sceneRulingEvidenceIds.delete(id);
+        else sceneRulingEvidenceIds.add(id);
+        reportSubmit.disabled = !sceneRulingReady();
+      },
+      true,
+    ),
+  );
+  reportSubmit.disabled = !sceneRulingReady();
+}
+
+function sceneRulingReady(): boolean {
+  return sceneRulingChoice !== '' && sceneRulingEvidenceIds.size > 0;
+}
+
+function renderSceneEnd(): void {
+  if (!sceneEnd) return;
+  reportContent.replaceChildren();
+  reportSubmit.hidden = true;
+  reportNote.textContent = '';
+  const heading = document.createElement('h3');
+  heading.className = 'verdict-title lose';
+  heading.textContent = sceneEnd.title;
+  const epilogue = document.createElement('p');
+  epilogue.className = 'verdict-epilogue';
+  epilogue.textContent = sceneEnd.epilogue;
+  reportContent.append(heading, epilogue);
+}
+
+function submitSceneRuling(): void {
+  const scene = activeCase.scene;
+  if (!scene || !sceneRulingReady() || sceneRulingChoice === '') return;
+  const ruling = judgeSceneRuling(scene, sceneRulingChoice, [
+    ...sceneRulingEvidenceIds,
+  ]);
+  if (ruling.outcome === 'OPENED') {
+    caseOpened = true;
+    phase = 'interrogation';
+    reportDialog.close();
+    appendSceneEntry('입건', scene.openingLine);
+    session();
+    appendMessage('system', scene.openingLine);
+    applyPhaseVisibility();
+    renderSuspectTabs();
+    renderSuspectCard();
+    renderStatus();
+    renderEvidence();
+    return;
+  }
+  if (ruling.outcome === 'REJECTED') {
+    reportNote.textContent = `입건 반려 — 근거가 부족하다. 부족한 고리: ${ruling.missingEvidenceIds
+      .map((id) => activeCase.evidences.find((e) => e.id === id)?.name ?? id)
+      .join(', ') || '결정적 모순 증거'}`;
+    return;
+  }
+  sceneEnd = {
+    title:
+      sceneRulingChoice === 'accident'
+        ? '사고사 종결 — 오판'
+        : '자살 종결 — 오판',
+    epilogue: scene.wrongRulingEpilogue,
+  };
+  renderSceneEnd();
+  appendSceneEntry('사건 종결', sceneEnd.title);
+  renderSceneSpots();
+  renderStatus();
 }
 
 // 심문 결과(진술·단계)가 새 증거·새 용의자를 여는지 평가하고 알린다.
@@ -436,20 +654,29 @@ function renderStarterQuestions(): void {
 
 function renderStatus(): void {
   renderStarterQuestions();
-  turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}${isOvertime(gameState) ? ' · 초과 수사' : ''}`;
-  const locked = isWaiting || verdict !== undefined;
+  turnStatus.textContent =
+    phase === 'scene'
+      ? '현장 수사'
+      : `심문 ${gameState.turn} / ${gameState.maxTurns}${isOvertime(gameState) ? ' · 초과 수사' : ''}`;
+  const locked = isWaiting || isCaseEnded();
   questionInput.disabled = locked || !canAskQuestion(gameState);
   sendButton.disabled = locked || !canAskQuestion(gameState);
   modelInput.disabled = locked;
   viewerPresent.disabled = locked;
   sendButton.textContent = isWaiting
     ? '답변 중…'
-    : verdict
+    : isCaseEnded()
       ? '종결됨'
       : '질문';
   // 정답 판정이 있는 사건에서만 종결 버튼을 노출한다.
-  reportButton.hidden = activeCase.motiveOptions.length === 0;
-  reportButton.textContent = verdict ? '수사 결과' : '사건 종결';
+  reportButton.hidden =
+    activeCase.motiveOptions.length === 0 && !activeCase.scene;
+  reportButton.textContent = isCaseEnded()
+    ? '수사 결과'
+    : phase === 'scene'
+      ? '현장 판단'
+      : '사건 종결';
+  phaseToggleButton.hidden = !activeCase.scene || !caseOpened || isCaseEnded();
   sessionMetrics.textContent = lastLatencyMs
     ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
     : '로컬 세션';
@@ -626,7 +853,7 @@ function openEvidence(evidence: Evidence): void {
 // 증거를 탁자에 올린다. 전환·반응은 일어나지 않는다 — 플레이어가 직접
 // 추궁 문장을 보내는 순간 증거가 작동한다.
 function handlePresentEvidence(evidence: Evidence): void {
-  if (verdict || isWaiting) return;
+  if (isCaseEnded() || isWaiting || phase === 'scene') return;
   slottedEvidence = slottedEvidence?.id === evidence.id ? undefined : evidence;
   renderEvidenceSlot();
   renderEvidence();
@@ -900,7 +1127,7 @@ function closeCase(result: VerdictResult): void {
 }
 
 function releaseSuspect(suspectId: string): void {
-  if (verdict || isWaiting) return;
+  if (isCaseEnded() || isWaiting) return;
   const target = getSuspect(activeCase, suspectId);
   releasedSuspectIds.add(suspectId);
   appendMessage('system', `${target.name}을(를) 용의선상에서 제외했다.`);
@@ -919,7 +1146,7 @@ releaseButton.addEventListener('click', () => {
 });
 
 indictButton.addEventListener('click', () => {
-  if (verdict || isWaiting) return;
+  if (isCaseEnded() || isWaiting) return;
   const current = activeSuspect();
   reportChoice = { ...reportChoice, accusedId: current.id };
   renderReportForm();
@@ -929,15 +1156,24 @@ indictButton.addEventListener('click', () => {
 
 reportButton.addEventListener('click', () => {
   if (verdict) renderVerdict(verdict);
+  else if (sceneEnd) renderSceneEnd();
+  else if (phase === 'scene') renderSceneRulingForm();
   else renderReportForm();
   reportDialog.showModal();
 });
+
+phaseToggleButton.addEventListener('click', () => switchPhase());
 reportClose.addEventListener('click', () => reportDialog.close());
 reportDialog.addEventListener('click', (event) => {
   if (event.target === reportDialog) reportDialog.close();
 });
 reportSubmit.addEventListener('click', () => {
-  if (!reportReady() || verdict) return;
+  if (isCaseEnded()) return;
+  if (phase === 'scene' && !caseOpened) {
+    submitSceneRuling();
+    return;
+  }
+  if (!reportReady()) return;
   lastAccusedName = getSuspect(activeCase, reportChoice.accusedId).name;
   closeCase(
     judgeReport(activeCase, {
@@ -952,7 +1188,7 @@ reportSubmit.addEventListener('click', () => {
 questionForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
-  if (!question || isWaiting || verdict || !canAskQuestion(gameState)) return;
+  if (!question || isWaiting || isCaseEnded() || phase === 'scene' || !canAskQuestion(gameState)) return;
 
   const active = session();
   const confrontEvidence = slottedEvidence;
@@ -1133,6 +1369,7 @@ evidenceDialog.addEventListener('click', (event) => {
 renderSuspectCard();
 renderSuspectTabs();
 rebuildChatLog();
+applyPhaseVisibility();
 renderEvidence();
 renderStatus();
 renderStatements();

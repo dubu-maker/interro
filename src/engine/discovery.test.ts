@@ -109,9 +109,12 @@ describe('점진 공개 (사건 1)', () => {
   });
 
   it('전체 증명 사슬의 증거가 모두 입수 가능하다 (해결 가능성)', () => {
-    // 최장 경로: 통화 목격 → E4·park, 자금 언쟁 → E5, 부인 → E6·E7·minho,
-    // S3 → E8. 초기 3개와 합치면 8개 전부.
+    // 1막 현장 조사(전 지점)가 주는 증거 + 심문 unlock 연쇄를 합치면
+    // 사건의 모든 증거에 도달할 수 있어야 한다.
     const acquired = new Set(case1.initialEvidenceIds);
+    for (const spot of case1.scene?.spots ?? []) {
+      if (spot.grantsEvidenceId) acquired.add(spot.grantsEvidenceId);
+    }
     const fired = evaluateUnlocks(case1, {
       acquiredEvidenceIds: acquired,
       unlockedSuspectIds: new Set(case1.initialSuspectIds),

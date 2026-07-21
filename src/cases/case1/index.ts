@@ -1,5 +1,6 @@
 import type { CaseDefinition } from '../../engine/case';
 import type { CaseContract } from '../../engine/contract';
+import type { SceneDefinition } from '../../engine/scene';
 import type { Evidence } from '../../engine/types';
 
 // 사건 1 "니어라이트 대표 사망 사건" — TRUTH.md v0.1 기반 영어 저작.
@@ -154,7 +155,140 @@ const evidences: Evidence[] = [
       note: 'Wiping suggests concealment after an unplanned attack.',
     },
   },
+  {
+    id: 'S_WOUND',
+    name: 'Inconsistent wound position',
+    description:
+      'He lies face-up, yet the wound is on the back of the head — and the blood pool sits away from the desk corner.',
+    view: {
+      type: 'scene',
+      capturedAt: '2026-07-18 08:02:11',
+      location: "CEO's office · scene sketch",
+      caption:
+        'A forward fall against the desk cannot put the wound where it is. Someone moved him, or something struck him.',
+    },
+  },
+  {
+    id: 'S_TROPHY',
+    name: 'The trophy, wiped clean',
+    description:
+      "The founding trophy sits a hand's width off its dust ring — and gleams while everything else wears a film of dust.",
+    view: {
+      type: 'scene',
+      capturedAt: '2026-07-18 08:14:47',
+      location: 'Display shelf · Exhibit pending',
+      caption:
+        'Every object on the shelf carries a week of dust except this one. Sent to forensics for trace analysis.',
+    },
+  },
+  {
+    id: 'S_REAR_DOOR',
+    name: 'Taped rear-door latch',
+    description:
+      'The rear stairwell door latch is taped over — the alarm contact never engaged that night.',
+    view: {
+      type: 'scene',
+      capturedAt: '2026-07-18 08:31:05',
+      location: 'Rear stairwell, 7F',
+      caption:
+        'With the latch taped, anyone could enter and leave without a parking record or a lobby camera ever seeing them.',
+    },
+  },
 ];
+
+// 1막 현장: 사고사로 접수된 현장에서 모순을 찾아 타살로 입건해야
+// 심문(2막)이 열린다.
+const scene: SceneDefinition = {
+  intro:
+    'Saturday, 7:40 AM. Building security found CEO Lee Do-yoon dead in his office. ' +
+    'First response logged it as an accidental fall — "slipped, struck his head on the desk." ' +
+    'The scene is yours before the cleanup crew arrives. Decide what this really is.',
+  spots: [
+    {
+      id: 'body',
+      name: 'The body',
+      hint: 'Slumped between the desk and the window, face-up.',
+      examText:
+        'He lies face-up, arms loose. The wound is on the BACK of the head — but a man who trips against his desk falls forward. The blood pool has settled nearly a meter from the desk corner the first report blamed.',
+      grantsEvidenceId: 'S_WOUND',
+    },
+    {
+      id: 'coroner',
+      name: 'Hand over to the coroner',
+      hint: 'Request a preliminary autopsy.',
+      examText:
+        'The coroner takes the body with a short nod. By the afternoon her preliminary report is on your desk: blunt-force trauma to the occiput, no defensive wounds, time of death 9:30-10:30 PM Friday.',
+      grantsEvidenceId: 'E2',
+      requiresSpotIds: ['body'],
+    },
+    {
+      id: 'desk',
+      name: 'The desk',
+      hint: 'Papers, a cold laptop, and two cups.',
+      examText:
+        'Two coffee cups sit facing each other across the desk — one bears a clear lipstick mark. Whoever the first report imagined, the CEO was not alone on Friday night.',
+      grantsEvidenceId: 'E3',
+    },
+    {
+      id: 'shelf',
+      name: 'The display shelf',
+      hint: 'Awards and framed photos under a week of dust.',
+      examText:
+        "Every award wears the same film of dust — except the founding trophy. It sits a hand's width off its own dust ring, and its brass gleams like it was polished last night. You bag it for forensics.",
+      grantsEvidenceId: 'S_TROPHY',
+    },
+    {
+      id: 'rear-door',
+      name: 'Rear stairwell door',
+      hint: 'Service stairs behind the executive floor.',
+      examText:
+        'The latch plate is covered with two neat strips of tape — an old trick to keep a door from locking. The alarm contact never engaged. Anyone could walk in from the alley without touching the lobby or the garage.',
+      grantsEvidenceId: 'S_REAR_DOOR',
+    },
+    {
+      id: 'security',
+      name: 'Security office',
+      hint: 'Gate logs and camera archive.',
+      examText:
+        "The guard pulls Friday's garage log for you. One vehicle stands out: secretary Han Se-ra's white sedan — out at 9:02 PM, back in at 9:38 PM, out again at 10:05 PM.",
+      grantsEvidenceId: 'E1',
+    },
+    {
+      id: 'window',
+      name: 'The window',
+      hint: 'Seventh floor, facing the river.',
+      examText:
+        'Locked from the inside, handle stiff with paint. Nobody came or left this way. The river keeps its own counsel.',
+    },
+    {
+      id: 'trash',
+      name: 'Wastebasket',
+      hint: 'Emptied recently — almost.',
+      examText:
+        'Shredded strips at the bottom — columns of figures, a corner stamped INTERNAL. Someone fed documents to the shredder recently. You note it and move on.',
+    },
+    {
+      id: 'phone-cradle',
+      name: 'Desk phone & charger',
+      hint: 'His phone is missing from the cradle.',
+      examText:
+        "The charger cable lies unplugged. His mobile was in his coat pocket, screen cracked from the fall — or from someone checking it. You log it for the carrier-records warrant. If he spoke to anyone that night, the records will say who.",
+      requiresSpotIds: ['body'],
+    },
+  ],
+  truth: 'homicide',
+  rulingChains: [
+    ['S_WOUND', 'S_TROPHY'],
+    ['S_WOUND', 'S_REAR_DOOR'],
+    ['S_TROPHY', 'S_REAR_DOOR'],
+  ],
+  wrongRulingEpilogue:
+    'The file was stamped ACCIDENTAL DEATH by Monday morning. The board meeting proceeded without its chairman; the audit item was quietly withdrawn from the agenda. ' +
+    'The trophy went back on its shelf, polished and silent. Nobody ever asked who taped the rear-door latch.',
+  openingLine:
+    'Homicide. The prosecutor signs off before noon: the fall was staged, the trophy wiped, the rear door prepared. ' +
+    'Three names surface around that final evening — starting with the secretary whose car returned at 9:38 PM.',
+};
 
 const materialLexicon = [
   'coffee',
@@ -718,8 +852,9 @@ export const case1: CaseDefinition = {
       contract: yuMinHoContract,
     },
   ],
-  // 점진 공개: 시작은 한세라와 현장 증거 3개뿐. 진술이 다음 단서를 연다.
-  initialEvidenceIds: ['E1', 'E2', 'E3'],
+  scene,
+  // 점진 공개: 초기 증거는 없다 — 1막 현장에서 직접 찾는다.
+  initialEvidenceIds: [],
   initialSuspectIds: ['sera'],
   unlocks: [
     {

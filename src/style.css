@@ -546,6 +546,84 @@ h1 {
   cursor: default;
 }
 
+.scene-panel {
+  padding: 1.25rem;
+}
+
+.scene-panel[hidden] {
+  display: none;
+}
+
+.scene-intro {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 3px solid #b28b54;
+  color: #cbd1d8;
+  background: #171c23;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.scene-log {
+  display: flex;
+  max-height: 17rem;
+  margin-bottom: 1rem;
+  flex-direction: column;
+  gap: 0.7rem;
+  overflow-y: auto;
+}
+
+.scene-entry {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #2a313b;
+  border-radius: 0.5rem;
+  background: #14181e;
+}
+
+.scene-entry strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #d7b978;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.scene-entry p {
+  margin: 0;
+  color: #c3ccd6;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.scene-spots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.scene-spot {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  border-radius: 0.55rem;
+}
+
+.scene-spot strong {
+  font-size: 0.88rem;
+}
+
+.scene-spot span {
+  color: #939dab;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.scene-spot.examined {
+  opacity: 0.5;
+}
+
 .evidence-slot {
   display: flex;
   align-items: center;

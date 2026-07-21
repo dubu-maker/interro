@@ -1,4 +1,5 @@
 import type { CaseContract } from './contract';
+import type { SceneDefinition } from './scene';
 import type { Evidence } from './types';
 
 // 사건 정의: 용의자 여러 명과 증거, 정답을 하나의 단위로 묶는다.
@@ -53,6 +54,9 @@ export interface CaseDefinition {
   title: string;
   briefing: string;
   maxTurns: number;
+  // 1막 현장 수사. 있으면 현장에서 시작하고, 타살 입건에 성공해야
+  // 심문(2막)이 열린다. 없으면 바로 심문에서 시작한다.
+  scene?: SceneDefinition;
   evidences: readonly Evidence[];
   suspects: readonly CaseSuspect[];
   initialEvidenceIds: readonly string[];
