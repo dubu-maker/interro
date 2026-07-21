@@ -43,6 +43,9 @@ export interface SuspectTurnRequest {
   suspect: SuspectPersona;
   question: string;
   recentTurns: readonly ChatMessage[];
+  // 탁자에 올려 둔 증거. 계획·렌더·검사 문맥에 포함되어 용의자가
+  // 해당 증거를 자연스럽게 언급할 수 있다 (전환은 엔진이 별도 처리).
+  presentedEvidence?: { name: string; description: string };
   // 직전 답변이 되물음으로 끝났으면 true. 연속 반문을 막는 데 쓴다.
   lastCounterQuestion?: boolean;
   // 렌더링이 폐기될 때마다 호출된다 (UI 표시용).
@@ -53,6 +56,14 @@ export async function runSuspectTurn(
   request: SuspectTurnRequest,
 ): Promise<SuspectTurnResult> {
   const { provider, model, contract, state, suspect, question } = request;
+  const evidence = request.presentedEvidence;
+  const evidenceNote = evidence
+    ? contract.language === 'en'
+      ? `
+[Evidence on the table: ${evidence.name} — ${evidence.description}]`
+      : `
+[탁자 위 증거: ${evidence.name} — ${evidence.description}]`
+    : '';
   const stage = getStage(contract, state.stageId);
   const candidates = allowedClaims(contract, state);
   let inputTokens = 0;
@@ -71,7 +82,7 @@ export async function runSuspectTurn(
     plannerAttempts += 1;
     const planResponse = await provider.chat({
       systemPrompt: plannerPrompt,
-      messages: [{ role: 'user', content: question }],
+      messages: [{ role: 'user', content: question + evidenceNote }],
       model,
       format: 'json',
       temperature: 0,
@@ -91,16 +102,28 @@ export async function runSuspectTurn(
     .filter((meaning): meaning is string => meaning !== undefined);
 
   // 2차 호출: 렌더러. 위반 시 같은 계획으로만 재시도한다.
-  const rendererPrompt = buildRendererPrompt(
-    suspect,
-    stage.strategy,
-    plan,
-    approvedMeanings,
-    contract.language,
-  );
+  const evidenceContext = evidence
+    ? contract.language === 'en'
+      ? `
+
+The detective has just placed evidence on the table: ${evidence.name} — ${evidence.description}. You may refer to it.`
+      : `
+
+형사가 방금 탁자에 증거를 올려놓았다: ${evidence.name} — ${evidence.description}. 이 증거를 언급해도 된다.`
+    : '';
+  const rendererPrompt =
+    buildRendererPrompt(
+      suspect,
+      stage.strategy,
+      plan,
+      approvedMeanings,
+      contract.language,
+    ) + evidenceContext;
   const inspectionInput = {
     approvedMeanings,
-    question,
+    question: evidence
+      ? `${question} ${evidence.name} ${evidence.description}`
+      : question,
     materialLexicon: contract.materialLexicon,
     counterQuestion: plan.counterQuestion,
     language: contract.language,

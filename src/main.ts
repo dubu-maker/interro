@@ -108,6 +108,8 @@ let reportChoice = { accusedId: '', motiveId: '', methodId: '' };
 let lastAccusedName = '';
 const reportEvidenceIds = new Set<string>();
 let selectedEvidence: Evidence | undefined;
+// 탁자 위에 올려 둔 증거. 다음 추궁(질문 전송)과 함께 작동한다.
+let slottedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
 app.innerHTML = `
@@ -153,6 +155,8 @@ app.innerHTML = `
         </div>
 
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
+
+        <div id="evidence-slot" class="evidence-slot" hidden></div>
 
         <div id="starter-questions" class="starter-questions"></div>
 
@@ -231,6 +235,7 @@ const releaseButton = getElement<HTMLButtonElement>('release-button');
 const indictButton = getElement<HTMLButtonElement>('indict-button');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
 const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
+const evidenceSlot = getElement<HTMLDivElement>('evidence-slot');
 const questionForm = getElement<HTMLFormElement>('question-form');
 const questionInput = getElement<HTMLTextAreaElement>('question-input');
 const sendButton = getElement<HTMLButtonElement>('send-button');
@@ -373,6 +378,8 @@ function switchSuspect(suspectId: string): void {
   if (!unlockedSuspectIds.has(suspectId)) return;
   activeSuspectId = suspectId;
   session();
+  slottedEvidence = undefined;
+  renderEvidenceSlot();
   renderSuspectCard();
   renderSuspectTabs();
   rebuildChatLog();
@@ -616,41 +623,38 @@ function openEvidence(evidence: Evidence): void {
   evidenceDialog.showModal();
 }
 
+// 증거를 탁자에 올린다. 전환·반응은 일어나지 않는다 — 플레이어가 직접
+// 추궁 문장을 보내는 순간 증거가 작동한다.
 function handlePresentEvidence(evidence: Evidence): void {
-  const active = session();
-  const outcome = applyEvidencePresentation(
-    activeSuspect().contract,
-    active.contractState,
-    evidence.id,
-  );
-  active.contractState = outcome.state;
-  if (!active.presentedEvidenceIds.includes(evidence.id)) {
-    active.presentedEvidenceIds.push(evidence.id);
-  }
-
-  appendMessage('system', `증거 제시: ${evidence.name}`);
-  if (outcome.transition) {
-    unlockedNotices.push(outcome.transition.unlockNotice);
-    active.stalledTurns = 0;
-    appendMessage(
-      'system',
-      '증거가 기존 진술과 충돌한다. 새로운 사실을 추궁할 수 있다.',
-    );
-    // 앵커 대사: 전환 순간의 반응은 저작 대사로 보증한다.
-    if (outcome.transition.reactionLine) {
-      appendMessage('suspect', outcome.transition.reactionLine);
-      active.history.push({
-        role: 'assistant',
-        content: outcome.transition.reactionLine,
-      });
-    }
-  } else {
-    appendMessage('system', '이 증거만으로 새롭게 확인된 사실은 없다.');
-  }
-  runDiscovery();
+  if (verdict || isWaiting) return;
+  slottedEvidence = slottedEvidence?.id === evidence.id ? undefined : evidence;
+  renderEvidenceSlot();
   renderEvidence();
-  renderStatus();
-  renderStatements();
+  questionInput.focus();
+}
+
+function renderEvidenceSlot(): void {
+  evidenceSlot.replaceChildren();
+  if (!slottedEvidence) {
+    evidenceSlot.hidden = true;
+    questionInput.placeholder = `${activeSuspect().name}에게 질문한다…`;
+    return;
+  }
+  evidenceSlot.hidden = false;
+  const label = document.createElement('span');
+  label.textContent = `탁자 위 증거 — ${slottedEvidence.name}`;
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'slot-clear';
+  clear.textContent = '×';
+  clear.setAttribute('aria-label', '증거 내리기');
+  clear.addEventListener('click', () => {
+    slottedEvidence = undefined;
+    renderEvidenceSlot();
+    renderEvidence();
+  });
+  evidenceSlot.append(label, clear);
+  questionInput.placeholder = `${slottedEvidence.name}을(를) 들이밀며 추궁한다…`;
 }
 
 function renderEvidence(): void {
@@ -675,11 +679,15 @@ function renderEvidence(): void {
     const presentButton = document.createElement('button');
     presentButton.type = 'button';
     presentButton.disabled = isWaiting;
-    presentButton.textContent = session().presentedEvidenceIds.includes(
-      evidence.id,
-    )
-      ? '다시 제시'
-      : '제시';
+    presentButton.textContent =
+      slottedEvidence?.id === evidence.id
+        ? '내려놓기'
+        : session().presentedEvidenceIds.includes(evidence.id)
+          ? '다시 제시'
+          : '제시';
+    if (slottedEvidence?.id === evidence.id) {
+      presentButton.classList.add('slotted');
+    }
     presentButton.addEventListener('click', () => handlePresentEvidence(evidence));
     actions.append(viewButton, presentButton);
 
@@ -779,10 +787,12 @@ function renderReportForm(): void {
       '이를 입증하는 핵심 증거',
       optionRow(
         'evidence',
-        activeCase.evidences.map((entry) => ({
-          id: entry.id,
-          label: entry.name,
-        })),
+        activeCase.evidences
+          .filter((entry) => acquiredEvidenceIds.has(entry.id))
+          .map((entry) => ({
+            id: entry.id,
+            label: entry.name,
+          })),
         '',
         (id) => {
           if (reportEvidenceIds.has(id)) reportEvidenceIds.delete(id);
@@ -945,6 +955,16 @@ questionForm.addEventListener('submit', async (event) => {
   if (!question || isWaiting || verdict || !canAskQuestion(gameState)) return;
 
   const active = session();
+  const confrontEvidence = slottedEvidence;
+  slottedEvidence = undefined;
+  renderEvidenceSlot();
+
+  if (confrontEvidence) {
+    appendMessage('system', `증거 제시 — ${confrontEvidence.name}`);
+    if (!active.presentedEvidenceIds.includes(confrontEvidence.id)) {
+      active.presentedEvidenceIds.push(confrontEvidence.id);
+    }
+  }
   appendMessage('detective', question);
   active.history.push({ role: 'user', content: question });
   questionInput.value = '';
@@ -954,6 +974,45 @@ questionForm.addEventListener('submit', async (event) => {
   renderSuspectTabs();
 
   const startedAt = performance.now();
+
+  // 탁자 위 증거가 방어를 무너뜨리는지 먼저 판정한다 (결정론).
+  // 무너뜨리면 저작된 앵커 대사가 플레이어의 추궁에 대한 대답이 된다.
+  let confrontTransitioned = false;
+  if (confrontEvidence) {
+    const outcome = applyEvidencePresentation(
+      activeSuspect().contract,
+      active.contractState,
+      confrontEvidence.id,
+    );
+    if (outcome.transition) {
+      confrontTransitioned = true;
+      active.contractState = outcome.state;
+      unlockedNotices.push(outcome.transition.unlockNotice);
+      active.stalledTurns = 0;
+      const reaction = outcome.transition.reactionLine;
+      if (reaction) {
+        gameState = recordCompletedTurn(gameState);
+        const bubble = appendMessage('suspect', '', false);
+        bubble.classList.add('streaming');
+        active.history.push({ role: 'assistant', content: reaction });
+        active.messages.push({ kind: 'suspect', content: reaction });
+        renderStatements();
+        runDiscovery();
+        lastLatencyMs = performance.now() - startedAt;
+        isWaiting = false;
+        renderStatus();
+        renderEvidence();
+        renderSuspectTabs();
+        revealSuspectAnswer(bubble, reaction);
+        questionInput.focus();
+        return;
+      }
+      // 앵커 대사가 없는 계약(프로토타입)은 새 단계에서 LLM이 답한다.
+      renderStatements();
+      runDiscovery();
+    }
+  }
+
   const responseBubble = appendMessage('suspect', '', false);
   responseBubble.classList.add('streaming');
 
@@ -972,6 +1031,12 @@ questionForm.addEventListener('submit', async (event) => {
       },
       question,
       recentTurns: active.history.slice(-6, -1),
+      presentedEvidence: confrontEvidence
+        ? {
+            name: confrontEvidence.name,
+            description: confrontEvidence.description,
+          }
+        : undefined,
       lastCounterQuestion: active.lastCounterQuestion,
       onDiscard: (violations) => {
         guardRetryCount += 1;
@@ -1006,6 +1071,9 @@ questionForm.addEventListener('submit', async (event) => {
     runDiscovery();
     lastLatencyMs = performance.now() - startedAt;
     revealSuspectAnswer(responseBubble, result.line);
+    if (confrontEvidence && !confrontTransitioned) {
+      appendMessage('system', '이 증거로는 진술이 흔들리지 않았다.');
+    }
 
     // 정체 감지: 새 진술이 2턴 연속 없으면 수사 노트 힌트를 보여준다.
     if (active.contractState.statements.length > statementCountBefore) {

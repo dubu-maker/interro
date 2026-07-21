@@ -546,6 +546,39 @@ h1 {
   cursor: default;
 }
 
+.evidence-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px dashed #b8a27b;
+  border-radius: 0.45rem;
+  color: #d9c9a8;
+  background: rgb(184 162 123 / 10%);
+  font-size: 0.8rem;
+}
+
+.evidence-slot[hidden] {
+  display: none;
+}
+
+.slot-clear {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #b8a27b;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.evidence-actions button.slotted {
+  border-color: #b8a27b;
+  color: #d9c9a8;
+  background: rgb(184 162 123 / 15%);
+}
+
 .starter-questions {
   display: flex;
   flex-wrap: wrap;
