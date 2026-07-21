@@ -386,9 +386,34 @@ h1 {
   display: none;
 }
 
-.release-button {
+.suspect-actions {
   margin-left: auto;
   align-self: center;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.indict-button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #b8a27b;
+  border-radius: 0.4rem;
+  color: #12151a;
+  background: #b8a27b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.indict-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.indict-button[hidden] {
+  display: none;
+}
+
+.release-button {
   padding: 0.35rem 0.75rem;
   border: 1px solid #6b5f4a;
   border-radius: 0.4rem;

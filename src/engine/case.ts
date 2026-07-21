@@ -33,6 +33,21 @@ export interface CaseSolution {
   epilogue: string;
 }
 
+// 점진 공개: 증거와 용의자는 처음부터 다 주지 않고, 심문에서 나온
+// 진술·입수한 증거·도달한 단계가 다음 단서를 연다.
+export type UnlockTrigger =
+  | { type: 'claim'; suspectId: string; claimId: string }
+  | { type: 'evidence'; evidenceId: string }
+  | { type: 'stage'; suspectId: string; stageId: string };
+
+export interface CaseUnlock {
+  // 둘 중 하나만 지정한다: 입수되는 증거 또는 열리는 용의자.
+  evidenceId?: string;
+  suspectId?: string;
+  notice: string;
+  trigger: UnlockTrigger;
+}
+
 export interface CaseDefinition {
   id: string;
   title: string;
@@ -40,9 +55,60 @@ export interface CaseDefinition {
   maxTurns: number;
   evidences: readonly Evidence[];
   suspects: readonly CaseSuspect[];
+  initialEvidenceIds: readonly string[];
+  initialSuspectIds: readonly string[];
+  unlocks: readonly CaseUnlock[];
   motiveOptions: readonly ReportOption[];
   methodOptions: readonly ReportOption[];
   solution: CaseSolution;
+}
+
+export interface DiscoverySnapshot {
+  acquiredEvidenceIds: ReadonlySet<string>;
+  unlockedSuspectIds: ReadonlySet<string>;
+  // `${suspectId}:${claimId}` 형태.
+  recordedClaims: ReadonlySet<string>;
+  // suspectId → 현재 방어 단계.
+  stages: ReadonlyMap<string, string>;
+}
+
+// 현재 수사 상태로 새로 열리는 단서를 전부 반환한다 (연쇄 포함, 결정론).
+export function evaluateUnlocks(
+  caseDefinition: CaseDefinition,
+  snapshot: DiscoverySnapshot,
+): CaseUnlock[] {
+  const acquired = new Set(snapshot.acquiredEvidenceIds);
+  const suspects = new Set(snapshot.unlockedSuspectIds);
+  const fired: CaseUnlock[] = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const unlock of caseDefinition.unlocks) {
+      const alreadyOpen = unlock.evidenceId
+        ? acquired.has(unlock.evidenceId)
+        : unlock.suspectId
+          ? suspects.has(unlock.suspectId)
+          : true;
+      if (alreadyOpen) continue;
+
+      const trigger = unlock.trigger;
+      const satisfied =
+        trigger.type === 'claim'
+          ? snapshot.recordedClaims.has(
+              `${trigger.suspectId}:${trigger.claimId}`,
+            )
+          : trigger.type === 'evidence'
+            ? acquired.has(trigger.evidenceId)
+            : snapshot.stages.get(trigger.suspectId) === trigger.stageId;
+      if (!satisfied) continue;
+
+      if (unlock.evidenceId) acquired.add(unlock.evidenceId);
+      if (unlock.suspectId) suspects.add(unlock.suspectId);
+      fired.push(unlock);
+      changed = true;
+    }
+  }
+  return fired;
 }
 
 export function getSuspect(

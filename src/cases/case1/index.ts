@@ -718,6 +718,52 @@ export const case1: CaseDefinition = {
       contract: yuMinHoContract,
     },
   ],
+  // 점진 공개: 시작은 한세라와 현장 증거 3개뿐. 진술이 다음 단서를 연다.
+  initialEvidenceIds: ['E1', 'E2', 'E3'],
+  initialSuspectIds: ['sera'],
+  unlocks: [
+    {
+      evidenceId: 'E4',
+      notice:
+        "Carrier records secured — the victim really was on the phone that night.",
+      trigger: { type: 'claim', suspectId: 'sera', claimId: 'C_HS_HEARD_PHONE' },
+    },
+    {
+      evidenceId: 'E5',
+      notice:
+        "A finance dispute? The annotated audit memo was recovered from the victim's desk.",
+      trigger: { type: 'claim', suspectId: 'sera', claimId: 'C_HS_MONEY_TALK' },
+    },
+    {
+      suspectId: 'park',
+      notice: 'The man on the other end of both calls: co-founder Park Jin-tae.',
+      trigger: { type: 'evidence', evidenceId: 'E4' },
+    },
+    {
+      evidenceId: 'E6',
+      notice:
+        'He swears he never set foot here. The parking garage saw nothing — but the rear entrance camera did.',
+      trigger: { type: 'claim', suspectId: 'park', claimId: 'C_PJ_NOT_THERE' },
+    },
+    {
+      evidenceId: 'E7',
+      notice:
+        'Cross-checking the building logs for the same window turned up an active workstation in the dev room.',
+      trigger: { type: 'evidence', evidenceId: 'E6' },
+    },
+    {
+      suspectId: 'minho',
+      notice:
+        'Yu Min-ho — badged into the dev room during the murder window.',
+      trigger: { type: 'evidence', evidenceId: 'E7' },
+    },
+    {
+      evidenceId: 'E8',
+      notice:
+        'To test his story, forensics re-examined the office. The founding award trophy came back positive.',
+      trigger: { type: 'stage', suspectId: 'park', stageId: 'S3' },
+    },
+  ],
   motiveOptions: [
     {
       id: 'M_EMBEZZLEMENT',
