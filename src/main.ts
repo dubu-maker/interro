@@ -9,6 +9,11 @@ import {
 } from './cases/prototype';
 import { getSuspect, type CaseSuspect } from './engine/case';
 import {
+  judgeRelease,
+  judgeReport,
+  type VerdictResult,
+} from './engine/verdict';
+import {
   applyEvidencePresentation,
   createContractState,
   getClaim,
@@ -87,6 +92,13 @@ function session(): SuspectSession {
 
 // 증거 제시로 확정된 새 사실 알림 (사건 전체 공유, 전환 순서대로).
 const unlockedNotices: string[] = [];
+// 판정이 내려지면 심문은 종료된다.
+let verdict: VerdictResult | undefined;
+// 플레이어가 용의선상에서 제외한 인물.
+const releasedSuspectIds = new Set<string>();
+// 최종 보고서에서 고른 값.
+let reportChoice = { accusedId: '', motiveId: '', methodId: '' };
+const reportEvidenceIds = new Set<string>();
 let selectedEvidence: Evidence | undefined;
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -106,6 +118,7 @@ app.innerHTML = `
           <span>Ollama 모델</span>
           <input id="model-input" value="${defaultModel}" />
         </label>
+        <button id="report-button" class="report-button" type="button">사건 종결</button>
         <button id="reset-button" class="reset-button" type="button">새 심문</button>
       </div>
     </header>
@@ -125,6 +138,7 @@ app.innerHTML = `
             <h2 id="suspect-name"></h2>
             <p id="suspect-role"></p>
           </div>
+          <button id="release-button" class="release-button" type="button">용의선상 제외</button>
         </div>
 
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
@@ -177,6 +191,23 @@ app.innerHTML = `
         </footer>
       </div>
     </dialog>
+
+    <dialog id="report-dialog" class="evidence-dialog">
+      <div class="evidence-viewer report-viewer">
+        <header class="viewer-header">
+          <div>
+            <p class="eyebrow">최종 수사 보고서</p>
+            <h2>사건을 종결합니다</h2>
+          </div>
+          <button id="report-close" class="viewer-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <div id="report-content" class="viewer-content"></div>
+        <footer class="viewer-footer">
+          <span id="report-note">자백이 아니라 증거가 사건을 끝냅니다.</span>
+          <button id="report-submit" type="button">기소한다</button>
+        </footer>
+      </div>
+    </dialog>
   </main>
 `;
 
@@ -185,6 +216,7 @@ const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
 const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
 const suspectName = getElement<HTMLHeadingElement>('suspect-name');
 const suspectRole = getElement<HTMLParagraphElement>('suspect-role');
+const releaseButton = getElement<HTMLButtonElement>('release-button');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
 const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
 const questionForm = getElement<HTMLFormElement>('question-form');
@@ -196,6 +228,12 @@ const sessionMetrics = getElement<HTMLSpanElement>('session-metrics');
 const unlockedList = getElement<HTMLUListElement>('unlocked-list');
 const statementsList = getElement<HTMLUListElement>('statements-list');
 const resetButton = getElement<HTMLButtonElement>('reset-button');
+const reportButton = getElement<HTMLButtonElement>('report-button');
+const reportDialog = getElement<HTMLDialogElement>('report-dialog');
+const reportContent = getElement<HTMLDivElement>('report-content');
+const reportSubmit = getElement<HTMLButtonElement>('report-submit');
+const reportClose = getElement<HTMLButtonElement>('report-close');
+const reportNote = getElement<HTMLSpanElement>('report-note');
 const evidenceDialog = getElement<HTMLDialogElement>('evidence-dialog');
 const viewerTitle = getElement<HTMLHeadingElement>('viewer-title');
 const viewerContent = getElement<HTMLDivElement>('viewer-content');
@@ -243,6 +281,15 @@ function renderSuspectCard(): void {
   suspectName.textContent = current.name;
   suspectRole.textContent = current.role;
   questionInput.placeholder = `${current.name}에게 질문한다…`;
+
+  // 용의선상 제외: 남은 턴을 아끼는 대신, 진범을 놓아주면 그대로 패배한다.
+  releaseButton.hidden =
+    activeCase.motiveOptions.length === 0 || verdict !== undefined;
+  releaseButton.disabled =
+    isWaiting || releasedSuspectIds.has(current.id) || verdict !== undefined;
+  releaseButton.textContent = releasedSuspectIds.has(current.id)
+    ? '제외됨'
+    : '용의선상 제외';
 }
 
 function renderSuspectTabs(): void {
@@ -255,8 +302,9 @@ function renderSuspectTabs(): void {
   for (const entry of activeCase.suspects) {
     const tab = document.createElement('button');
     tab.type = 'button';
-    tab.className = `suspect-tab${entry.id === activeSuspectId ? ' active' : ''}`;
-    tab.textContent = entry.name;
+    const released = releasedSuspectIds.has(entry.id);
+    tab.className = `suspect-tab${entry.id === activeSuspectId ? ' active' : ''}${released ? ' released' : ''}`;
+    tab.textContent = released ? `${entry.name} (제외)` : entry.name;
     tab.disabled = isWaiting;
     tab.addEventListener('click', () => switchSuspect(entry.id));
     suspectTabs.append(tab);
@@ -324,11 +372,19 @@ function renderStarterQuestions(): void {
 function renderStatus(): void {
   renderStarterQuestions();
   turnStatus.textContent = `심문 ${gameState.turn} / ${gameState.maxTurns}${isOvertime(gameState) ? ' · 초과 수사' : ''}`;
-  questionInput.disabled = isWaiting || !canAskQuestion(gameState);
-  sendButton.disabled = isWaiting || !canAskQuestion(gameState);
-  modelInput.disabled = isWaiting;
-  viewerPresent.disabled = isWaiting;
-  sendButton.textContent = isWaiting ? '답변 중…' : '질문';
+  const locked = isWaiting || verdict !== undefined;
+  questionInput.disabled = locked || !canAskQuestion(gameState);
+  sendButton.disabled = locked || !canAskQuestion(gameState);
+  modelInput.disabled = locked;
+  viewerPresent.disabled = locked;
+  sendButton.textContent = isWaiting
+    ? '답변 중…'
+    : verdict
+      ? '종결됨'
+      : '질문';
+  // 정답 판정이 있는 사건에서만 종결 버튼을 노출한다.
+  reportButton.hidden = activeCase.motiveOptions.length === 0;
+  reportButton.textContent = verdict ? '수사 결과' : '사건 종결';
   sessionMetrics.textContent = lastLatencyMs
     ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
     : '로컬 세션';
@@ -572,10 +628,246 @@ function renderEvidence(): void {
   }
 }
 
+// ── 최종 보고서 ────────────────────────────────────────────────
+// 자백이 아니라 증거 사슬로 사건을 끝낸다. 진범이 끝까지 부인해도
+// 올바른 증거를 모으면 유죄가 나오고, 진범을 놓아주면 그 자리에서 패배한다.
+
+function reportReady(): boolean {
+  return (
+    reportChoice.accusedId !== '' &&
+    reportChoice.motiveId !== '' &&
+    reportChoice.methodId !== '' &&
+    reportEvidenceIds.size > 0
+  );
+}
+
+function optionRow(
+  groupName: string,
+  options: readonly { id: string; label: string }[],
+  selectedId: string,
+  onPick: (id: string) => void,
+  multi = false,
+): HTMLDivElement {
+  const box = document.createElement('div');
+  box.className = 'report-options';
+  for (const option of options) {
+    const row = document.createElement('label');
+    row.className = 'report-option';
+    const input = document.createElement('input');
+    input.type = multi ? 'checkbox' : 'radio';
+    input.name = groupName;
+    input.checked = multi
+      ? reportEvidenceIds.has(option.id)
+      : selectedId === option.id;
+    input.addEventListener('change', () => onPick(option.id));
+    const text = document.createElement('span');
+    text.textContent = option.label;
+    row.append(input, text);
+    box.append(row);
+  }
+  return box;
+}
+
+function renderReportForm(): void {
+  reportContent.replaceChildren();
+  reportSubmit.hidden = false;
+  reportNote.textContent = '자백이 아니라 증거가 사건을 끝냅니다.';
+
+  const sections: [string, HTMLElement][] = [
+    [
+      '범인은 누구입니까',
+      optionRow(
+        'culprit',
+        activeCase.suspects.map((entry) => ({
+          id: entry.id,
+          label: `${entry.name} · ${entry.role}`,
+        })),
+        reportChoice.accusedId,
+        (id) => {
+          reportChoice = { ...reportChoice, accusedId: id };
+          reportSubmit.disabled = !reportReady();
+        },
+      ),
+    ],
+    [
+      '범행 동기는 무엇입니까',
+      optionRow(
+        'motive',
+        activeCase.motiveOptions,
+        reportChoice.motiveId,
+        (id) => {
+          reportChoice = { ...reportChoice, motiveId: id };
+          reportSubmit.disabled = !reportReady();
+        },
+      ),
+    ],
+    [
+      '범행 수법은 무엇입니까',
+      optionRow(
+        'method',
+        activeCase.methodOptions,
+        reportChoice.methodId,
+        (id) => {
+          reportChoice = { ...reportChoice, methodId: id };
+          reportSubmit.disabled = !reportReady();
+        },
+      ),
+    ],
+    [
+      '이를 입증하는 핵심 증거',
+      optionRow(
+        'evidence',
+        activeCase.evidences.map((entry) => ({
+          id: entry.id,
+          label: entry.name,
+        })),
+        '',
+        (id) => {
+          if (reportEvidenceIds.has(id)) reportEvidenceIds.delete(id);
+          else reportEvidenceIds.add(id);
+          reportSubmit.disabled = !reportReady();
+        },
+        true,
+      ),
+    ],
+  ];
+
+  for (const [title, element] of sections) {
+    const heading = document.createElement('h3');
+    heading.className = 'report-heading';
+    heading.textContent = title;
+    reportContent.append(heading, element);
+  }
+  reportSubmit.disabled = !reportReady();
+}
+
+const outcomeCopy: Record<
+  VerdictResult['outcome'],
+  { title: string; tone: string }
+> = {
+  CONVICTED: { title: '유죄 — 사건 해결', tone: 'win' },
+  INSUFFICIENT_EVIDENCE: { title: '증거 불충분 — 기소 실패', tone: 'lose' },
+  WRONG_SUSPECT: { title: '오인 기소 — 진범을 놓쳤다', tone: 'lose' },
+  CULPRIT_RELEASED: { title: '진범 방면 — 사건 종결 실패', tone: 'lose' },
+};
+
+function renderVerdict(result: VerdictResult): void {
+  reportContent.replaceChildren();
+  reportSubmit.hidden = true;
+  reportNote.textContent = '';
+
+  const copy = outcomeCopy[result.outcome];
+  const heading = document.createElement('h3');
+  heading.className = `verdict-title ${copy.tone}`;
+  heading.textContent = copy.title;
+  reportContent.append(heading);
+
+  const lines: string[] = [];
+  if (result.outcome === 'CONVICTED') {
+    lines.push(
+      `증명 사슬 충족: ${(result.matchedChain ?? [])
+        .map((id) => activeCase.evidences.find((e) => e.id === id)?.name ?? id)
+        .join(' + ')}`,
+    );
+    lines.push(
+      `동기 판단 ${result.correctMotive ? '정확' : '부정확'} · 수법 판단 ${
+        result.correctMethod ? '정확' : '부정확'
+      }`,
+    );
+  } else if (result.outcome === 'INSUFFICIENT_EVIDENCE') {
+    lines.push(
+      '지목한 인물은 맞지만 제출한 증거만으로는 범행을 입증할 수 없다.',
+    );
+    if (result.missingEvidenceIds.length > 0) {
+      lines.push(
+        `빠진 고리: ${result.missingEvidenceIds
+          .map(
+            (id) => activeCase.evidences.find((e) => e.id === id)?.name ?? id,
+          )
+          .join(', ')}`,
+      );
+    }
+  } else if (result.outcome === 'WRONG_SUSPECT') {
+    lines.push('무고한 사람을 기소했다. 진범은 끝내 법정에 서지 않았다.');
+  } else {
+    lines.push('용의선상에서 제외한 인물이 이 사건의 진범이었다.');
+  }
+  lines.push(`심문 ${gameState.turn}턴 사용${isOvertime(gameState) ? ' (초과 수사)' : ''}`);
+
+  for (const line of lines) {
+    const paragraph = document.createElement('p');
+    paragraph.className = 'verdict-line';
+    paragraph.textContent = line;
+    reportContent.append(paragraph);
+  }
+
+  const epilogueHeading = document.createElement('h3');
+  epilogueHeading.className = 'report-heading';
+  epilogueHeading.textContent = '사건의 진상';
+  const epilogue = document.createElement('p');
+  epilogue.className = 'verdict-epilogue';
+  epilogue.textContent = activeCase.solution.epilogue;
+  reportContent.append(epilogueHeading, epilogue);
+}
+
+function closeCase(result: VerdictResult): void {
+  verdict = result;
+  renderVerdict(result);
+  if (!reportDialog.open) reportDialog.showModal();
+  appendMessage(
+    'system',
+    `사건 종결 — ${outcomeCopy[result.outcome].title}`,
+  );
+  renderStatus();
+  renderEvidence();
+  renderSuspectCard();
+  renderSuspectTabs();
+}
+
+function releaseSuspect(suspectId: string): void {
+  if (verdict || isWaiting) return;
+  const target = getSuspect(activeCase, suspectId);
+  releasedSuspectIds.add(suspectId);
+  appendMessage('system', `${target.name}을(를) 용의선상에서 제외했다.`);
+  const released = judgeRelease(activeCase, suspectId);
+  if (released) {
+    closeCase(released);
+    return;
+  }
+  renderSuspectTabs();
+  renderSuspectCard();
+  renderStatus();
+}
+
+releaseButton.addEventListener('click', () => {
+  releaseSuspect(activeSuspectId);
+});
+
+reportButton.addEventListener('click', () => {
+  if (verdict) renderVerdict(verdict);
+  else renderReportForm();
+  reportDialog.showModal();
+});
+reportClose.addEventListener('click', () => reportDialog.close());
+reportDialog.addEventListener('click', (event) => {
+  if (event.target === reportDialog) reportDialog.close();
+});
+reportSubmit.addEventListener('click', () => {
+  if (!reportReady() || verdict) return;
+  closeCase(
+    judgeReport(activeCase, {
+      accusedId: reportChoice.accusedId,
+      motiveId: reportChoice.motiveId,
+      methodId: reportChoice.methodId,
+      evidenceIds: [...reportEvidenceIds],
+    }),
+  );
+});
+
 questionForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
-  if (!question || isWaiting || !canAskQuestion(gameState)) return;
+  if (!question || isWaiting || verdict || !canAskQuestion(gameState)) return;
 
   const active = session();
   appendMessage('detective', question);

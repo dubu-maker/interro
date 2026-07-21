@@ -718,15 +718,59 @@ export const case1: CaseDefinition = {
       contract: yuMinHoContract,
     },
   ],
+  motiveOptions: [
+    {
+      id: 'M_EMBEZZLEMENT',
+      label:
+        'To bury the embezzlement the audit memo would expose at Monday\'s board meeting',
+    },
+    {
+      id: 'M_AFFAIR',
+      label: 'To hide a personal relationship with the victim',
+    },
+    {
+      id: 'M_JOB_LEAK',
+      label: 'To stop the victim from reporting stolen project files',
+    },
+    {
+      id: 'M_DEMOTION',
+      label: 'Revenge for being pushed out of the company leadership',
+    },
+  ],
+  methodOptions: [
+    {
+      id: 'X_TROPHY',
+      label:
+        'Struck the back of his head with the office trophy in an unplanned attack, then wiped it clean',
+    },
+    {
+      id: 'X_PUSH',
+      label: 'Pushed him so that he struck his head on the desk',
+    },
+    {
+      id: 'X_PLANNED',
+      label: 'Brought a weapon to the office and attacked him as planned',
+    },
+    {
+      id: 'X_POISON',
+      label: 'Drugged his coffee, then staged the head injury',
+    },
+  ],
   solution: {
     culpritId: 'park',
-    motive:
-      'The audit memo: his embezzlement was going before the board on Monday.',
-    method:
-      'Struck the victim with the office trophy in an unplanned attack, then wiped it.',
+    motiveId: 'M_EMBEZZLEMENT',
+    methodId: 'X_TROPHY',
     proofEvidenceChains: [
       ['E4', 'E6', 'E8'],
       ['E4', 'E5', 'E8'],
     ],
+    epilogue:
+      'At 10:07 PM Lee Do-yoon called his co-founder and told him to come up. ' +
+      'Park Jin-tae took the rear stairs at 10:09 PM — seen by Yu Min-ho, who ' +
+      'was quietly archiving his own files before resigning. The argument over ' +
+      "the audit memo turned physical; Park struck him with the founding award " +
+      'trophy and wiped it down before leaving at 10:24 PM. Han Se-ra, who had ' +
+      'been building the whistleblower file with the victim, had already driven ' +
+      'out of the garage at 10:05 PM.',
   },
 };

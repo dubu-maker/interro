@@ -16,13 +16,21 @@ export interface CaseSuspect {
   contract: CaseContract;
 }
 
-// 최종 보고서 판정용 정답 데이터. UI는 아직 없지만 사건과 함께 저작한다.
+// 최종 보고서에서 플레이어가 고르는 선택지. 오답도 그럴듯해야 한다.
+export interface ReportOption {
+  id: string;
+  label: string;
+}
+
+// 최종 보고서 판정용 정답 데이터.
 export interface CaseSolution {
   culpritId: string;
-  motive: string;
-  method: string;
+  motiveId: string;
+  methodId: string;
   // 각 배열은 하나의 유효한 증명 사슬(모두 제시되어야 함). any_of 관계.
   proofEvidenceChains: readonly (readonly string[])[];
+  // 판정 후 보여주는 사건의 진상.
+  epilogue: string;
 }
 
 export interface CaseDefinition {
@@ -32,6 +40,8 @@ export interface CaseDefinition {
   maxTurns: number;
   evidences: readonly Evidence[];
   suspects: readonly CaseSuspect[];
+  motiveOptions: readonly ReportOption[];
+  methodOptions: readonly ReportOption[];
   solution: CaseSolution;
 }
 

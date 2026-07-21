@@ -371,6 +371,125 @@ h1 {
   color: #8a5b5b;
 }
 
+.report-button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #b8a27b;
+  border-radius: 0.45rem;
+  color: #12151a;
+  background: #b8a27b;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-button[hidden] {
+  display: none;
+}
+
+.release-button {
+  margin-left: auto;
+  align-self: center;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #6b5f4a;
+  border-radius: 0.4rem;
+  color: #b8a27b;
+  background: transparent;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.release-button:hover:not(:disabled) {
+  border-color: #b8a27b;
+  background: rgb(184 162 123 / 12%);
+}
+
+.release-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.release-button[hidden] {
+  display: none;
+}
+
+.report-viewer .viewer-content {
+  padding: 1rem 1.35rem;
+}
+
+.report-heading {
+  margin: 1rem 0 0.5rem;
+  color: #b8a27b;
+  font-size: 0.85rem;
+}
+
+.report-heading:first-child {
+  margin-top: 0;
+}
+
+.report-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.report-option {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #2f3742;
+  border-radius: 0.4rem;
+  color: #d5dce4;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.report-option:hover {
+  border-color: #4c586a;
+  background: #1a2029;
+}
+
+.report-option input {
+  margin-top: 0.2rem;
+  accent-color: #b8a27b;
+}
+
+.verdict-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.verdict-title.win {
+  color: #8fd6a8;
+}
+
+.verdict-title.lose {
+  color: #dd8a8a;
+}
+
+.verdict-line {
+  margin: 0 0 0.4rem;
+  color: #c3ccd6;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.verdict-epilogue {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-left: 2px solid #b8a27b;
+  color: #b9c1ca;
+  background: #171c23;
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+.suspect-tab.released {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
 .suspect-tabs {
   display: flex;
   gap: 0.35rem;

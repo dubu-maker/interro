@@ -5,11 +5,13 @@ import { briefing, evidences, suspect } from './fixture';
 
 // 기존 프로토타입 사건을 CaseDefinition으로 감싼다 (한국어/영어).
 
+// 프로토타입은 기술 검증용이라 정답 판정을 두지 않는다.
 const prototypeSolution = {
   culpritId: 'unknown',
-  motive: '프로토타입에는 정답 판정이 없다',
-  method: '-',
+  motiveId: 'unknown',
+  methodId: 'unknown',
   proofEvidenceChains: [],
+  epilogue: '프로토타입 사건에는 확정된 진상이 없다.',
 } as const;
 
 export const prototypeCaseKo: CaseDefinition = {
@@ -29,6 +31,8 @@ export const prototypeCaseKo: CaseDefinition = {
       contract: hanSeraContract,
     },
   ],
+  motiveOptions: [],
+  methodOptions: [],
   solution: prototypeSolution,
 };
 
@@ -50,5 +54,7 @@ export const prototypeCaseEn: CaseDefinition = {
       contract: hanSeraContractEn,
     },
   ],
+  motiveOptions: [],
+  methodOptions: [],
   solution: prototypeSolution,
 };
