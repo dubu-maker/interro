@@ -547,37 +547,179 @@ h1 {
 }
 
 .scene-panel {
-  padding: 1.25rem;
+  background:
+    radial-gradient(circle at 48% 38%, rgb(29 55 76 / 18%), transparent 48%),
+    #0b0f14;
 }
 
 .scene-panel[hidden] {
   display: none;
 }
 
+.game-shell[data-phase='scene'] .briefing-panel {
+  display: none;
+}
+
+.game-shell[data-phase='scene'] .workspace {
+  grid-template-columns: minmax(0, 1fr) 22rem;
+}
+
+.scene-stage-header {
+  display: flex;
+  min-height: 5.3rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid #25313d;
+  background: rgb(10 14 20 / 96%);
+}
+
+.scene-stage-header h2 {
+  margin: 0.08rem 0 0.2rem;
+  font-size: 1.08rem;
+}
+
+.scene-location {
+  margin: 0;
+  color: #7790a5;
+  font-family: Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+
+.scene-stage-status {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #8fb6d4;
+  font-family: Consolas, monospace;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.scene-audio-button {
+  padding: 0.48rem 0.68rem;
+  border-color: #314657;
+  color: #c49f5f;
+  background: #0b1118;
+  font-family: inherit;
+  font-size: 0.72rem;
+}
+
+.scene-audio-button[aria-pressed='true'] {
+  border-color: #8b6e3e;
+  color: #f0c579;
+  background: #20190f;
+}
+
+.scene-stage-frame {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #080d13;
+}
+
+.scene-stage-frame::after {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  box-shadow:
+    inset 0 0 5rem rgb(0 0 0 / 48%),
+    inset 0 -3rem 4rem rgb(0 0 0 / 26%);
+  pointer-events: none;
+  content: '';
+}
+
+.scene-stage-host {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-stage-host.unavailable {
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  color: #aebbc8;
+  background: #080d13;
+  text-align: center;
+}
+
+.scene-stage-host canvas {
+  display: block !important;
+}
+
+.scene-stage-overlay {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+
+.scene-ambient {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.9rem;
+  width: fit-content;
+  margin: 0;
+  padding: 0.34rem 0.5rem;
+  border: 1px dashed #6f5733;
+  border-radius: 0.3rem;
+  color: #c49f5f;
+  background: rgb(8 13 19 / 90%);
+  font-family: Consolas, monospace;
+  font-size: 0.66rem;
+}
+
 .scene-intro {
-  margin-bottom: 1rem;
-  padding: 0.85rem 1rem;
-  border-left: 3px solid #b28b54;
-  color: #cbd1d8;
-  background: #171c23;
-  font-size: 0.9rem;
-  line-height: 1.65;
+  position: absolute;
+  top: 3.2rem;
+  left: 50%;
+  width: min(28rem, 58%);
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #2b3946;
+  border-left: 2px solid #7fa9c7;
+  color: #aebbc8;
+  background: rgb(8 13 19 / 92%);
+  font-size: 0.68rem;
+  line-height: 1.55;
+  transform: translateX(-50%);
+  animation: scene-intro-dismiss 8s forwards;
+}
+
+@keyframes scene-intro-dismiss {
+  0%,
+  62% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .scene-log {
   display: flex;
-  max-height: 17rem;
-  margin-bottom: 1rem;
+  max-height: 11rem;
   flex-direction: column;
   gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid #25313d;
+  background: #0d1218;
   overflow-y: auto;
 }
 
+.scene-log:empty {
+  display: none;
+}
+
 .scene-entry {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #2a313b;
-  border-radius: 0.5rem;
-  background: #14181e;
+  padding: 0.5rem 0.7rem;
+  border-left: 2px solid #365b78;
+  background: #111820;
 }
 
 .scene-entry strong {
@@ -596,16 +738,32 @@ h1 {
   line-height: 1.6;
 }
 
+.scene-accessibility {
+  padding: 0.7rem 1rem 0.9rem;
+  border-top: 1px solid #202a34;
+  background: #0b1016;
+}
+
+.scene-accessibility summary {
+  width: fit-content;
+  color: #70879b;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
 .scene-spots {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.6rem;
+  margin-top: 0.7rem;
 }
 
 .scene-spot {
   display: grid;
   gap: 0.3rem;
   padding: 0.7rem 0.8rem;
+  border-color: #2d4559;
+  background: #101923;
   text-align: left;
   border-radius: 0.55rem;
 }
@@ -1167,6 +1325,16 @@ h1 {
   .recording-dot {
     animation: none;
   }
+
+  .scene-intro {
+    animation: scene-intro-hide 0.01s 8s forwards;
+  }
+}
+
+@keyframes scene-intro-hide {
+  to {
+    opacity: 0;
+  }
 }
 
 @media (max-width: 800px) {
@@ -1184,8 +1352,43 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .game-shell[data-phase='scene'] .workspace {
+    grid-template-columns: 1fr;
+  }
+
   .evidence-panel {
     order: -1;
+  }
+
+  .game-shell[data-phase='scene'] .evidence-panel {
+    order: initial;
+  }
+
+  .scene-stage-header,
+  .scene-stage-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scene-stage-frame {
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+  }
+
+  .scene-stage-overlay {
+    inset: 0;
+  }
+
+  .scene-intro {
+    top: 2.7rem;
+    width: min(24rem, 72%);
+    max-height: 5.7rem;
+    overflow: hidden;
+    font-size: 0.6rem;
+  }
+
+  .scene-spots {
+    grid-template-columns: 1fr;
   }
 
   .chat-log {

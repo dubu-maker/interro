@@ -1,8 +1,10 @@
 import './style.css';
+import { DesktopModelProvider } from './ai/desktopModelProvider';
 import { runSuspectTurn } from './ai/interrogationPipeline';
 import { OllamaProvider } from './ai/ollamaProvider';
 import type { ChatMessage } from './ai/types';
 import { case1 } from './cases/case1';
+import { case1SceneStageLayout } from './cases/case1/sceneStage';
 import {
   prototypeCaseEn,
   prototypeCaseKo,
@@ -19,8 +21,11 @@ import {
 } from './engine/verdict';
 import {
   availableSpots,
+  createSceneProgress,
+  examineSceneSpot,
   judgeSceneRuling,
   type DeathRulingChoice,
+  type SceneProgress,
 } from './engine/scene';
 import {
   applyEvidencePresentation,
@@ -37,15 +42,31 @@ import {
   recordCompletedTurn,
 } from './engine/gameState';
 import type { Evidence, EvidenceView } from './engine/types';
+import type { PhaserSceneStage as PhaserSceneStageInstance } from './presentation/sceneStage';
+import {
+  createSceneStageSnapshot,
+  type SceneStageLayout,
+} from './presentation/sceneStageModel';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('#app 요소를 찾을 수 없습니다.');
 
 const ollamaBaseUrl =
   import.meta.env.VITE_OLLAMA_BASE_URL ?? '/api/ollama';
-const defaultModel =
-  import.meta.env.VITE_OLLAMA_MODEL ?? 'qwen2.5:14b';
-const provider = new OllamaProvider(ollamaBaseUrl);
+const desktopModel = window.interroDesktop?.model;
+const defaultModel = desktopModel?.defaultModel ??
+  import.meta.env.VITE_OLLAMA_MODEL ??
+  'qwen2.5:14b';
+const provider = window.interroDesktop
+  ? new DesktopModelProvider(window.interroDesktop)
+  : new OllamaProvider(ollamaBaseUrl);
+const isOpenAiDesktop = desktopModel?.provider === 'openai';
+const modelFieldLabel = isOpenAiDesktop
+  ? 'OpenAI API 모델'
+  : window.interroDesktop
+    ? '로컬 AI 모델'
+    : 'Ollama 모델';
+const sessionLabel = isOpenAiDesktop ? 'OpenAI API 세션' : '로컬 세션';
 
 // 사건 선택: ?case=case1 → 사건 1 (영어 저작), 그 외에는 프로토타입
 // (?lang=en 이면 영어 프로토타입).
@@ -56,6 +77,16 @@ const activeCase =
     : urlParams.get('lang') === 'en'
       ? prototypeCaseEn
       : prototypeCaseKo;
+
+const sceneStageLayout: SceneStageLayout =
+  activeCase.id === case1.id
+    ? case1SceneStageLayout
+    : {
+        ariaLabel: '사건 현장 조사 배치도',
+        locationLabel: '사건 현장',
+        ambientLabel: '현장 환경음',
+        placements: [],
+      };
 
 let gameState = createGameState(activeCase.maxTurns);
 let isWaiting = false;
@@ -120,7 +151,7 @@ let phase: 'scene' | 'interrogation' = activeCase.scene
   ? 'scene'
   : 'interrogation';
 let caseOpened = !activeCase.scene;
-const examinedSpotIds = new Set<string>();
+let sceneProgress: SceneProgress = createSceneProgress();
 // 현장 오판(사고·자살 종결) 시 저장되는 결말.
 let sceneEnd: { title: string; epilogue: string } | undefined;
 let sceneRulingChoice: DeathRulingChoice | '' = '';
@@ -132,7 +163,7 @@ function isCaseEnded(): boolean {
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
 app.innerHTML = `
-  <main class="game-shell">
+  <main id="game-shell" class="game-shell">
     <header class="topbar">
       <div>
         <p class="eyebrow">INTERRO / 기술 검증용 사건</p>
@@ -141,10 +172,10 @@ app.innerHTML = `
       <div class="status-row">
         <div class="session-status">
           <span id="turn-status"></span>
-          <span id="session-metrics">로컬 세션</span>
+          <span id="session-metrics">${sessionLabel}</span>
         </div>
         <label class="model-field">
-          <span>Ollama 모델</span>
+          <span>${modelFieldLabel}</span>
           <input id="model-input" value="${defaultModel}" />
         </label>
         <button id="phase-toggle-button" class="reset-button" type="button" hidden>현장 재조사</button>
@@ -161,9 +192,31 @@ app.innerHTML = `
     <div class="workspace">
       <section class="interrogation-panel">
         <div id="scene-panel" class="scene-panel" hidden>
-          <p id="scene-intro" class="scene-intro"></p>
-          <div id="scene-log" class="scene-log"></div>
-          <div id="scene-spots" class="scene-spots"></div>
+          <header class="scene-stage-header">
+            <div>
+              <p class="eyebrow">ACT I · 현장 수사</p>
+              <h2>${activeCase.title}</h2>
+              <p id="scene-location" class="scene-location"></p>
+            </div>
+            <div class="scene-stage-status">
+              <span id="scene-progress">조사 기록 0</span>
+              <button id="scene-audio-button" class="scene-audio-button" type="button" aria-pressed="false">
+                환경음 켜기
+              </button>
+            </div>
+          </header>
+          <div class="scene-stage-frame">
+            <div id="scene-stage-host" class="scene-stage-host"></div>
+            <div class="scene-stage-overlay">
+              <p id="scene-ambient" class="scene-ambient"></p>
+              <p id="scene-intro" class="scene-intro"></p>
+            </div>
+          </div>
+          <div id="scene-log" class="scene-log" aria-live="polite"></div>
+          <details id="scene-accessibility" class="scene-accessibility">
+            <summary>터치·키보드·스크린리더용 텍스트 조사</summary>
+            <div id="scene-spots" class="scene-spots"></div>
+          </details>
         </div>
         <div id="suspect-tabs" class="suspect-tabs"></div>
         <div class="suspect-card">
@@ -252,10 +305,17 @@ app.innerHTML = `
 `;
 
 const chatLog = getElement<HTMLDivElement>('chat-log');
+const gameShell = getElement<HTMLElement>('game-shell');
 const scenePanel = getElement<HTMLDivElement>('scene-panel');
 const sceneIntro = getElement<HTMLParagraphElement>('scene-intro');
 const sceneLog = getElement<HTMLDivElement>('scene-log');
 const sceneSpots = getElement<HTMLDivElement>('scene-spots');
+const sceneStageHost = getElement<HTMLDivElement>('scene-stage-host');
+const sceneLocation = getElement<HTMLParagraphElement>('scene-location');
+const sceneProgressLabel = getElement<HTMLSpanElement>('scene-progress');
+const sceneAmbient = getElement<HTMLParagraphElement>('scene-ambient');
+const sceneAudioButton = getElement<HTMLButtonElement>('scene-audio-button');
+const sceneAccessibility = getElement<HTMLDetailsElement>('scene-accessibility');
 const phaseToggleButton = getElement<HTMLButtonElement>('phase-toggle-button');
 const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
 const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
@@ -270,6 +330,7 @@ const questionForm = getElement<HTMLFormElement>('question-form');
 const questionInput = getElement<HTMLTextAreaElement>('question-input');
 const sendButton = getElement<HTMLButtonElement>('send-button');
 const modelInput = getElement<HTMLInputElement>('model-input');
+modelInput.readOnly = isOpenAiDesktop;
 const turnStatus = getElement<HTMLSpanElement>('turn-status');
 const sessionMetrics = getElement<HTMLSpanElement>('session-metrics');
 const unlockedList = getElement<HTMLUListElement>('unlocked-list');
@@ -287,10 +348,56 @@ const viewerContent = getElement<HTMLDivElement>('viewer-content');
 const viewerClose = getElement<HTMLButtonElement>('viewer-close');
 const viewerPresent = getElement<HTMLButtonElement>('viewer-present');
 
+if (window.matchMedia('(pointer: coarse)').matches) {
+  sceneAccessibility.open = true;
+}
+
 function getElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`#${id} 요소를 찾을 수 없습니다.`);
   return element as T;
+}
+
+let sceneAudioEnabled = false;
+let sceneStage: PhaserSceneStageInstance | undefined;
+let sceneStageDisposed = false;
+
+function showSceneStageFailure(error: unknown): void {
+  console.error('현장 렌더링을 시작하지 못했습니다.', error);
+  sceneStageHost.classList.add('unavailable');
+  sceneStageHost.textContent =
+    '현장 그래픽을 표시하지 못했습니다. 아래 텍스트 조사 목록을 이용해 주세요.';
+  sceneAccessibility.open = true;
+}
+
+if (activeCase.scene) {
+  void import('./presentation/sceneStage')
+    .then(({ PhaserSceneStage }) => {
+      if (sceneStageDisposed) return;
+      sceneStageHost.replaceChildren();
+      try {
+        sceneStage = new PhaserSceneStage(
+          sceneStageHost,
+          {
+            onIntent: (intent) => {
+              if (intent.type === 'examine-spot') examineSpot(intent.spotId);
+            },
+          },
+          sceneStageLayout.visual,
+        );
+      } catch (error) {
+        showSceneStageFailure(error);
+        return;
+      }
+      renderSceneSpots();
+      sceneStage.setActive(phase === 'scene');
+      sceneStage.setAudioEnabled(sceneAudioEnabled);
+      sceneStage.setBusy(isWaiting);
+      if (phase === 'scene') {
+        window.requestAnimationFrame(() => sceneStage?.refresh());
+      }
+    })
+    .catch((error: unknown) => showSceneStageFailure(error));
 }
 
 function appendMessage(
@@ -379,6 +486,7 @@ function appendSceneEntry(title: string, text: string): void {
 
 function renderSceneSpots(): void {
   if (!activeCase.scene) return;
+  const examinedSpotIds = new Set(sceneProgress.examinedSpotIds);
   sceneSpots.replaceChildren();
   for (const spot of availableSpots(activeCase.scene, examinedSpotIds)) {
     const button = document.createElement('button');
@@ -393,30 +501,53 @@ function renderSceneSpots(): void {
     button.addEventListener('click', () => examineSpot(spot.id));
     sceneSpots.append(button);
   }
+
+  const snapshot = createSceneStageSnapshot(
+    activeCase.scene,
+    sceneProgress,
+    sceneStageLayout,
+    phase === 'scene' && !isCaseEnded(),
+  );
+  sceneLocation.textContent = snapshot.locationLabel;
+  sceneAmbient.textContent = `환경음 · ${snapshot.ambientLabel}`;
+  sceneProgressLabel.textContent = `조사 기록 ${snapshot.investigatedCount}`;
+  sceneStageHost.setAttribute('aria-label', snapshot.ariaLabel);
+  sceneStage?.update(snapshot);
 }
 
 function examineSpot(spotId: string): void {
   const scene = activeCase.scene;
-  if (!scene || examinedSpotIds.has(spotId) || isCaseEnded()) return;
-  const spot = scene.spots.find((entry) => entry.id === spotId);
-  if (!spot) return;
-  examinedSpotIds.add(spotId);
+  if (!scene || isCaseEnded()) return;
+  const examination = examineSceneSpot(scene, sceneProgress, spotId);
+  if (examination.outcome === 'REJECTED') return;
+  sceneProgress = examination.progress;
+  const spot = examination.spot;
   appendSceneEntry(spot.name, spot.examText);
+  let evidenceName: string | undefined;
   if (spot.grantsEvidenceId && !acquiredEvidenceIds.has(spot.grantsEvidenceId)) {
     acquiredEvidenceIds.add(spot.grantsEvidenceId);
     const evidence = activeCase.evidences.find(
       (entry) => entry.id === spot.grantsEvidenceId,
     );
-    appendSceneEntry('증거 확보', evidence?.name ?? spot.grantsEvidenceId);
+    evidenceName = evidence?.name ?? spot.grantsEvidenceId;
+    appendSceneEntry('증거 확보', evidenceName);
     renderEvidence();
   }
   renderSceneSpots();
+  sceneStage?.play({
+    type: 'spot-examined',
+    spotId,
+    evidenceName,
+    newlyAvailableSpotIds: examination.newlyAvailableSpotIds,
+  });
 }
 
 // 막 전환에 따라 패널 표시를 전환한다.
 function applyPhaseVisibility(): void {
   const inScene = phase === 'scene';
+  gameShell.dataset.phase = phase;
   scenePanel.hidden = !inScene;
+  sceneStage?.setActive(inScene);
   if (inScene) suspectTabs.hidden = true;
   const interrogationBlocks = [
     document.querySelector('.suspect-card'),
@@ -431,6 +562,7 @@ function applyPhaseVisibility(): void {
   if (inScene && activeCase.scene) {
     sceneIntro.textContent = activeCase.scene.intro;
     renderSceneSpots();
+    window.requestAnimationFrame(() => sceneStage?.refresh());
   }
   phaseToggleButton.hidden =
     !activeCase.scene || !caseOpened || isCaseEnded();
@@ -654,6 +786,7 @@ function renderStarterQuestions(): void {
 
 function renderStatus(): void {
   renderStarterQuestions();
+  sceneStage?.setBusy(isWaiting);
   turnStatus.textContent =
     phase === 'scene'
       ? '현장 수사'
@@ -679,7 +812,7 @@ function renderStatus(): void {
   phaseToggleButton.hidden = !activeCase.scene || !caseOpened || isCaseEnded();
   sessionMetrics.textContent = lastLatencyMs
     ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
-    : '로컬 세션';
+    : sessionLabel;
 
   unlockedList.replaceChildren();
   if (unlockedNotices.length === 0) {
@@ -1163,6 +1296,14 @@ reportButton.addEventListener('click', () => {
 });
 
 phaseToggleButton.addEventListener('click', () => switchPhase());
+sceneAudioButton.addEventListener('click', () => {
+  sceneAudioEnabled = !sceneAudioEnabled;
+  sceneAudioButton.setAttribute('aria-pressed', String(sceneAudioEnabled));
+  sceneAudioButton.textContent = sceneAudioEnabled
+    ? '환경음 끄기'
+    : '환경음 켜기';
+  sceneStage?.setAudioEnabled(sceneAudioEnabled);
+});
 reportClose.addEventListener('click', () => reportDialog.close());
 reportDialog.addEventListener('click', (event) => {
   if (event.target === reportDialog) reportDialog.close();
@@ -1336,7 +1477,9 @@ questionForm.addEventListener('submit', async (event) => {
     const detail = error instanceof Error ? error.message : String(error);
     appendMessage(
       'error',
-      `로컬 모델에 연결하지 못했다: ${detail}. Ollama 실행 상태를 확인해줘.`,
+      isOpenAiDesktop
+        ? `OpenAI API 호출에 실패했다: ${detail}`
+        : `로컬 모델에 연결하지 못했다: ${detail}. Ollama 실행 상태를 확인해줘.`,
     );
   } finally {
     isWaiting = false;
@@ -1365,6 +1508,14 @@ evidenceDialog.addEventListener('close', stopParkingPlayback);
 evidenceDialog.addEventListener('click', (event) => {
   if (event.target === evidenceDialog) evidenceDialog.close();
 });
+window.addEventListener(
+  'beforeunload',
+  () => {
+    sceneStageDisposed = true;
+    sceneStage?.destroy();
+  },
+  { once: true },
+);
 
 renderSuspectCard();
 renderSuspectTabs();

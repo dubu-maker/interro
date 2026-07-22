@@ -31,6 +31,32 @@ export interface SceneDefinition {
   openingLine: string;
 }
 
+export interface SceneProgress {
+  examinedSpotIds: readonly string[];
+}
+
+export type SceneExaminationRejection =
+  | 'UNKNOWN'
+  | 'LOCKED'
+  | 'ALREADY_EXAMINED';
+
+export type SceneExaminationResult =
+  | {
+      outcome: 'EXAMINED';
+      progress: SceneProgress;
+      spot: SceneSpot;
+      newlyAvailableSpotIds: string[];
+    }
+  | {
+      outcome: 'REJECTED';
+      reason: SceneExaminationRejection;
+      progress: SceneProgress;
+    };
+
+export function createSceneProgress(): SceneProgress {
+  return { examinedSpotIds: [] };
+}
+
 export function availableSpots(
   scene: SceneDefinition,
   examinedSpotIds: ReadonlySet<string>,
@@ -38,6 +64,40 @@ export function availableSpots(
   return scene.spots.filter((spot) =>
     (spot.requiresSpotIds ?? []).every((id) => examinedSpotIds.has(id)),
   );
+}
+
+export function examineSceneSpot(
+  scene: SceneDefinition,
+  progress: SceneProgress,
+  spotId: string,
+): SceneExaminationResult {
+  const spot = scene.spots.find((entry) => entry.id === spotId);
+  if (!spot) return { outcome: 'REJECTED', reason: 'UNKNOWN', progress };
+
+  const examined = new Set(progress.examinedSpotIds);
+  if (examined.has(spotId)) {
+    return { outcome: 'REJECTED', reason: 'ALREADY_EXAMINED', progress };
+  }
+  const locked = (spot.requiresSpotIds ?? []).some(
+    (requiredId) => !examined.has(requiredId),
+  );
+  if (locked) return { outcome: 'REJECTED', reason: 'LOCKED', progress };
+
+  const previouslyAvailableIds = new Set(
+    availableSpots(scene, examined).map((entry) => entry.id),
+  );
+  examined.add(spotId);
+  const nextProgress = { examinedSpotIds: [...examined] };
+  const newlyAvailableSpotIds = availableSpots(scene, examined)
+    .map((entry) => entry.id)
+    .filter((id) => !previouslyAvailableIds.has(id));
+
+  return {
+    outcome: 'EXAMINED',
+    progress: nextProgress,
+    spot,
+    newlyAvailableSpotIds,
+  };
 }
 
 export type SceneRuling =

@@ -15,6 +15,7 @@
 - Node.js 24+
 - Vite + Vanilla TypeScript
 - 로컬 모델: Ollama (`qwen2.5:14b` 기본값)
+- 선택적 원격 시험 모델: OpenAI API (`gpt-5.6-luna` 고정)
 
 ## 실행
 
@@ -29,11 +30,49 @@ Ollama가 실행 중이어야 한다. 기본 모델은 다음 명령으로 준�
 ollama pull qwen2.5:14b
 ```
 
+### Windows 데스크톱 빌드
+
+현재 데스크톱 빌드는 로컬 플레이테스트용이다. 기존 웹 게임을 Electron의
+격리된 화면에서 실행하고, 모델 요청만 검증된 main-process 경계로 보낸다.
+
+```powershell
+npm run desktop:start
+npm run desktop:smoke
+```
+
+### OpenAI API 로컬 시험
+
+PowerShell 7에서 아래 명령을 실행하면 빌드 후 마스킹된 키 입력창이 열린다.
+키는 파일·명령 기록·renderer에 저장하지 않고 해당 프로세스가 끝날 때
+환경변수에서 지운다. `VITE_OPENAI_API_KEY`나 게임 내 키 입력란은 만들지 않는다.
+
+```powershell
+npm run openai:smoke
+npm run desktop:openai
+```
+
+첫 명령은 짧은 실제 호출로 연결을 확인하고, 둘째 명령은 OpenAI API 세션으로
+게임을 실행한다. 모델·출력량·호출 빈도는 Electron main process에서 제한한다.
+이 경로는 개발자 개인 키를 쓰는 로컬 시험 전용이다. Steam 출시판에는 키를
+포함하지 않고 별도 HTTPS 백엔드를 사용해야 한다.
+
+SteamPipe에 넣을 Windows x64 실행 폴더는 다음 명령으로 만든다.
+
+```powershell
+npm run steam:package
+```
+
+산출물은 `out/INTERRO-win32-x64/`에 생성된다. 현재 빌드는 별도 Ollama 설치
+또는 개발자 OpenAI 키를 요구하므로 소비자용 출시 빌드는 아니다. 저장·복원,
+프로덕션 AI 경로, 권리·심사 준비를 포함한 출시 기준은
+[STEAM_READINESS.md](STEAM_READINESS.md)를 참고한다.
+
 ## 검증
 
 ```powershell
 npm test
 npm run build
+npm run desktop:smoke
 npm run redteam
 ```
 

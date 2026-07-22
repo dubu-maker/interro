@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.electron.json",
+  "compilerOptions": {
+    "noEmit": false
+  },
+  "include": [
+    "electron/main.ts",
+    "electron/openaiResponses.ts",
+    "electron/preload.cts",
+    "shared/**/*.ts"
+  ]
+}

@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-electron/
+out/
+steam-build-output/
 .env
 .env.*
 !.env.example
@@ -10,3 +13,4 @@ test-results/*.jsonl
 *.log
 .DS_Store
 Thumbs.db
+.claude/

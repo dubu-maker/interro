@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { case1 } from '../cases/case1';
-import { availableSpots, judgeSceneRuling } from './scene';
+import {
+  availableSpots,
+  createSceneProgress,
+  examineSceneSpot,
+  judgeSceneRuling,
+} from './scene';
 
 const scene = case1.scene!;
 
@@ -10,6 +15,33 @@ describe('현장 수사 (사건 1)', () => {
     expect(before.some((spot) => spot.id === 'coroner')).toBe(false);
     const after = availableSpots(scene, new Set(['body']));
     expect(after.some((spot) => spot.id === 'coroner')).toBe(true);
+  });
+
+  it('잠긴 조사 지점은 UI를 우회해 요청해도 엔진이 거부한다', () => {
+    const result = examineSceneSpot(scene, createSceneProgress(), 'coroner');
+    expect(result).toEqual({
+      outcome: 'REJECTED',
+      reason: 'LOCKED',
+      progress: { examinedSpotIds: [] },
+    });
+  });
+
+  it('조사 성공은 진행 상태와 새로 열린 지점만 반환한다', () => {
+    const result = examineSceneSpot(scene, createSceneProgress(), 'body');
+    expect(result.outcome).toBe('EXAMINED');
+    if (result.outcome === 'EXAMINED') {
+      expect(result.progress.examinedSpotIds).toEqual(['body']);
+      expect(result.newlyAvailableSpotIds).toContain('coroner');
+    }
+  });
+
+  it('알 수 없거나 이미 조사한 지점은 거부한다', () => {
+    expect(
+      examineSceneSpot(scene, createSceneProgress(), 'missing'),
+    ).toMatchObject({ outcome: 'REJECTED', reason: 'UNKNOWN' });
+    expect(
+      examineSceneSpot(scene, { examinedSpotIds: ['body'] }, 'body'),
+    ).toMatchObject({ outcome: 'REJECTED', reason: 'ALREADY_EXAMINED' });
   });
 
   it('조사 지점이 주는 증거가 모두 실제 증거 목록에 존재한다', () => {
