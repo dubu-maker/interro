@@ -28,12 +28,18 @@ export interface DossierViewOptions extends DossierViewStatus {
   initialMode?: DossierViewMode;
 }
 
-const groupOrder = ['INITIAL', 'REFERENCE', 'EXAMINATION'] as const;
+const groupOrder = [
+  'INITIAL',
+  'REFERENCE',
+  'EXAMINATION',
+  'RESULT',
+] as const;
 
 const groupLabels: Record<(typeof groupOrder)[number], string> = {
   INITIAL: '초동 기록',
   REFERENCE: '참고 자료',
   EXAMINATION: '감식·검시',
+  RESULT: '추가 감식 기록',
 };
 
 const documentKindLabels: Record<DossierDocument['kind'], string> = {
@@ -186,6 +192,10 @@ export class DossierView {
     return this.definition.documents.filter((document) =>
       acquired.has(document.id),
     );
+  }
+
+  private isSupplementalDocument(documentId: string): boolean {
+    return !this.definition.initialDocumentIds.includes(documentId);
   }
 
   private normalizeSelection(): void {
@@ -369,6 +379,9 @@ export class DossierView {
       const entries = documents.filter((document) => document.group === group);
       if (entries.length === 0) continue;
       const section = createElement('section', 'dossier-index-group');
+      section.classList.add(
+        `dossier-index-group--${group.toLocaleLowerCase()}`,
+      );
       const heading = createElement(
         'h3',
         'dossier-index-group__title',
@@ -395,6 +408,7 @@ export class DossierView {
   ): HTMLButtonElement {
     const selected = dossierDocument.id === this.activeDocumentId;
     const opened = this.state.openedDocumentIds.includes(dossierDocument.id);
+    const supplemental = this.isSupplementalDocument(dossierDocument.id);
     const button = createButton('dossier-document-tab', '');
     button.id = `${this.instanceId}-document-tab-${dossierDocument.id}`;
     button.setAttribute('role', 'tab');
@@ -406,6 +420,7 @@ export class DossierView {
     button.tabIndex = selected ? 0 : -1;
     button.classList.toggle('active', selected);
     button.classList.toggle('unread', !opened);
+    button.classList.toggle('supplemental', supplemental);
     button.disabled = this.status.disabled === true;
 
     const id = createElement(
@@ -418,11 +433,20 @@ export class DossierView {
       'dossier-document-tab__title',
       dossierDocument.title,
     );
-    const status = createElement(
-      'small',
-      'dossier-document-tab__status',
-      opened ? '열람함' : '미열람',
-    );
+    const status = createElement('small', 'dossier-document-tab__status');
+    if (supplemental) {
+      const addedLabel = createElement(
+        'span',
+        'dossier-document-tab__added',
+        opened ? '추가 기록' : '새로 추가',
+      );
+      status.append(
+        addedLabel,
+        document.createTextNode(` · ${opened ? '열람함' : '미열람'}`),
+      );
+    } else {
+      status.textContent = opened ? '열람함' : '미열람';
+    }
     button.append(id, title, status);
     button.addEventListener('click', () =>
       this.selectDocument(dossierDocument.id),
@@ -467,6 +491,30 @@ export class DossierView {
     this.normalizeSelection();
     this.render();
     this.activate();
+    this.revealDocumentTab(documentId);
+  }
+
+  private revealDocumentTab(documentId: string): void {
+    const index = this.element.querySelector<HTMLElement>('.dossier-index');
+    const tab = this.element.querySelector<HTMLElement>(
+      `#${this.instanceId}-document-tab-${documentId}`,
+    );
+    if (!index || !tab) return;
+
+    const indexRect = index.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    if (index.scrollHeight > index.clientHeight) {
+      index.scrollTop +=
+        tabRect.top -
+        indexRect.top -
+        (index.clientHeight - tabRect.height) / 2;
+    }
+    if (index.scrollWidth > index.clientWidth) {
+      index.scrollLeft +=
+        tabRect.left -
+        indexRect.left -
+        (index.clientWidth - tabRect.width) / 2;
+    }
   }
 
   private renderDiscoverySummary(): HTMLElement {
@@ -524,10 +572,12 @@ export class DossierView {
   }
 
   private renderDocument(dossierDocument: DossierDocument): HTMLElement {
+    const supplemental = this.isSupplementalDocument(dossierDocument.id);
     const article = createElement(
       'article',
       `dossier-document dossier-document--${documentKindClass(dossierDocument.kind)}`,
     );
+    article.classList.toggle('dossier-document--supplemental', supplemental);
     article.id = `${this.instanceId}-document-${dossierDocument.id}`;
     article.setAttribute('role', 'tabpanel');
     article.setAttribute(
@@ -537,6 +587,8 @@ export class DossierView {
 
     const folder = createElement('div', 'dossier-manila-folder');
     const paper = createElement('div', 'dossier-paper');
+    folder.classList.toggle('dossier-manila-folder--supplemental', supplemental);
+    paper.classList.toggle('dossier-paper--supplemental', supplemental);
     const header = createElement('header', 'dossier-paper__header');
     const kind = createElement(
       'p',
@@ -549,6 +601,15 @@ export class DossierView {
       dossierDocument.title,
     );
     header.append(kind, title);
+    if (supplemental) {
+      header.append(
+        createElement(
+          'span',
+          'dossier-paper__added-label',
+          '추가 감식 기록 · 사건 서류에 편입',
+        ),
+      );
+    }
     if (dossierDocument.organization) {
       header.append(
         createElement(
@@ -1147,6 +1208,10 @@ export class DossierView {
   ): HTMLElement {
     const available = this.state.availableRequestIds.includes(request.id);
     const completed = this.state.completedRequestIds.includes(request.id);
+    const resultDocumentId = request.resultDocumentIds.find((documentId) =>
+      this.state.acquiredDocumentIds.includes(documentId),
+    );
+    const canOpenResult = completed && resultDocumentId !== undefined;
     const noSlots =
       available &&
       !completed &&
@@ -1200,9 +1265,13 @@ export class DossierView {
     );
     const status = createElement('p', 'dossier-request-card__status');
     if (completed) {
-      status.textContent = request.privateResult
-        ? '분석 완료 · 결과는 떠보기용 수사 메모로만 보관한다.'
-        : '분석 완료 · 결과 문서가 사건 서류에 추가됐다.';
+      status.textContent = resultDocumentId
+        ? request.privateResult
+          ? '분석 완료 · 비공개 결과 문서가 사건 서류에 추가됐다.'
+          : '분석 완료 · 결과 문서가 사건 서류에 추가됐다.'
+        : request.privateResult
+          ? '분석 완료 · 결과는 떠보기용 수사 메모로만 보관한다.'
+          : '분석 완료 · 결과가 수사 기록에 반영됐다.';
     } else if (!available) {
       status.textContent = request.lockedReason;
     } else if (noSlots) {
@@ -1216,8 +1285,10 @@ export class DossierView {
 
     const action = createButton(
       'dossier-request-action',
-      completed
-        ? '처리 완료'
+      canOpenResult
+        ? '결과 문서 보기'
+        : completed
+          ? '처리 완료'
         : !available
           ? '잠김'
           : noSlots
@@ -1228,14 +1299,40 @@ export class DossierView {
                 ? '복원 의뢰'
                 : '기록 조회',
     );
+    action.classList.toggle(
+      'dossier-request-action--result',
+      canOpenResult,
+    );
     action.disabled =
-      this.status.disabled === true || completed || !available || noSlots;
+      this.status.disabled === true ||
+      (completed ? !canOpenResult : !available || noSlots);
     action.addEventListener('click', () => {
       if (this.status.disabled) return;
+      if (canOpenResult && resultDocumentId) {
+        this.openResultDocument(resultDocumentId);
+        return;
+      }
+      if (completed) return;
       this.callbacks.onRequestAnalysis(request.id);
     });
     card.append(header, description, status, action);
     return card;
+  }
+
+  private openResultDocument(documentId: string): void {
+    if (
+      this.status.disabled ||
+      !this.state.acquiredDocumentIds.includes(documentId)
+    ) {
+      return;
+    }
+    this.mode = 'documents';
+    this.activeDocumentId = documentId;
+    this.selectedQuoteId = undefined;
+    this.normalizeSelection();
+    this.render();
+    this.activate();
+    this.revealDocumentTab(documentId);
   }
 
   private renderQuoteToolbar(): HTMLElement {

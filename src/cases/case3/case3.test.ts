@@ -106,6 +106,18 @@ describe('사건 3 서류철 기본 구성', () => {
     expect(dossierState.acquiredDocumentIds).toEqual(
       dossier.initialDocumentIds,
     );
+    expect(
+      dossier.documents
+        .filter((document) => document.group === 'RESULT')
+        .map((document) => document.id),
+    ).toEqual(['D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'D16']);
+    expect(
+      dossierState.acquiredDocumentIds.some((id) =>
+        ['D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'D16'].includes(
+          id,
+        ),
+      ),
+    ).toBe(false);
     expect(dossierState.availableRequestIds).toEqual(['RQ_PHONE']);
     expect(dossierState.spentForensicSlots).toBe(0);
   });
@@ -256,13 +268,66 @@ describe('사건 3 데이터 무결성', () => {
     }
 
     const requestedEvidenceIds: string[] = [];
+    const requestedDocumentIds: string[] = [];
     for (const request of dossier.requests) {
+      expect(request.resultDocumentIds, request.id).toHaveLength(1);
+      expect(request.resultEvidenceIds, request.id).toHaveLength(1);
+
+      for (const documentId of request.resultDocumentIds) {
+        requestedDocumentIds.push(documentId);
+        expect(documentIds.has(documentId), request.id).toBe(true);
+      }
       for (const evidenceId of request.resultEvidenceIds) {
         requestedEvidenceIds.push(evidenceId);
         expect(evidenceIds.has(evidenceId), request.id).toBe(true);
       }
+
+      const resultDocument = dossier.documents.find(
+        (document) => document.id === request.resultDocumentIds[0],
+      );
+      const resultEvidence = case3.evidences.find(
+        (evidence) => evidence.id === request.resultEvidenceIds[0],
+      );
+      expect(resultDocument?.group, request.id).toBe('RESULT');
+      expect(resultEvidence?.view.type, request.id).toBe('document');
+      if (!resultDocument || resultEvidence?.view.type !== 'document') {
+        continue;
+      }
+
+      expect(resultDocument.title, request.id).toBe(resultEvidence.view.title);
+      expect(resultDocument.documentNumber, request.id).toBe(
+        resultEvidence.view.documentNumber,
+      );
+      expect(resultDocument.organization, request.id).toBe(
+        resultEvidence.view.organization,
+      );
+
+      const resultFields = resultDocument.pages.flatMap((page) =>
+        page.blocks.flatMap((block) =>
+          block.type === 'fields'
+            ? block.rows.map(({ label, value }) => ({ label, value }))
+            : [],
+        ),
+      );
+      expect(resultFields, request.id).toEqual(resultEvidence.view.fields);
+
+      const resultNotes = resultDocument.pages.flatMap((page) =>
+        page.blocks.flatMap((block) =>
+          block.type === 'paragraph' && block.tone === 'note'
+            ? [block.text]
+            : [],
+        ),
+      );
+      expect(resultNotes, request.id).toContain(resultEvidence.view.note);
     }
+    expectUnique(requestedDocumentIds, '의뢰 결과 서류');
     expectUnique(requestedEvidenceIds, '의뢰 결과 증거');
+    expect([...requestedDocumentIds].sort()).toEqual(
+      dossier.documents
+        .filter((document) => document.group === 'RESULT')
+        .map((document) => document.id)
+        .sort(),
+    );
     expect([...requestedEvidenceIds].sort()).toEqual(
       [...evidenceIds].sort(),
     );
@@ -403,7 +468,9 @@ describe('사건 3 결정론적 서류철 경로', () => {
       type: 'REQUEST_ANALYSIS',
       requestId: 'RQ_LIFT_LOG',
     });
+    expect(result.newDocumentIds).toEqual(['D8']);
     expect(result.newEvidenceIds).toEqual(['E1']);
+    expect(result.state.acquiredDocumentIds).toContain('D8');
     expect(result.state.spentForensicSlots).toBe(1);
   });
 
@@ -430,7 +497,9 @@ describe('사건 3 결정론적 서류철 경로', () => {
       type: 'REQUEST_ANALYSIS',
       requestId: 'RQ_KEY_LOG',
     });
+    expect(result.newDocumentIds).toEqual(['D13']);
     expect(result.newEvidenceIds).toEqual(['E6']);
+    expect(result.state.acquiredDocumentIds).toContain('D13');
     expect(result.state.spentForensicSlots).toBe(0);
   });
 
@@ -452,7 +521,9 @@ describe('사건 3 결정론적 서류철 경로', () => {
       snapshot,
       { type: 'REQUEST_ANALYSIS', requestId: 'RQ_CORRIDOR' },
     );
+    expect(requested.newDocumentIds).toEqual(['D14']);
     expect(requested.newEvidenceIds).toEqual(['E7']);
+    expect(requested.state.acquiredDocumentIds).toContain('D14');
     expect(requested.state.spentForensicSlots).toBe(1);
   });
 
@@ -474,7 +545,9 @@ describe('사건 3 결정론적 서류철 경로', () => {
       snapshot,
       { type: 'REQUEST_ANALYSIS', requestId: 'RQ_AUDIO' },
     );
+    expect(requested.newDocumentIds).toEqual(['D15']);
     expect(requested.newEvidenceIds).toEqual(['E8']);
+    expect(requested.state.acquiredDocumentIds).toContain('D15');
     expect(case3.evidences.find((evidence) => evidence.id === 'E8')).toMatchObject(
       { presentationMode: 'probe' },
     );

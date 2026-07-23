@@ -909,6 +909,15 @@ function applyDossierOutcome(result: DossierOutcome): void {
   if (!dossierDefinition || !dossierState) return;
   dossierState = result.state;
 
+  for (const documentId of result.newDocumentIds) {
+    const dossierDocument = dossierDefinition.documents.find(
+      (entry) => entry.id === documentId,
+    );
+    appendMessage(
+      'hint',
+      `사건 서류 추가 — ${dossierDocument?.title ?? documentId}`,
+    );
+  }
   for (const evidenceId of result.newEvidenceIds) {
     if (acquiredEvidenceIds.has(evidenceId)) continue;
     acquiredEvidenceIds.add(evidenceId);

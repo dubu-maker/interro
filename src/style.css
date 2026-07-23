@@ -2075,6 +2075,15 @@ h1 {
   text-transform: uppercase;
 }
 
+.dossier-index-group--result {
+  padding-top: 0.85rem;
+  border-top: 1px dashed #466363;
+}
+
+.dossier-index-group--result .dossier-index-group__title {
+  color: #83aaa7;
+}
+
 .dossier-document-tabs {
   display: grid;
   gap: 0.38rem;
@@ -2114,6 +2123,29 @@ h1 {
   background: #e1c18d;
 }
 
+.dossier-document-tab.supplemental {
+  border-color: #405b5b;
+  background:
+    linear-gradient(100deg, rgb(111 159 157 / 12%), transparent 72%),
+    #202b2a;
+  box-shadow: inset 3px 0 #587d7b;
+}
+
+.dossier-document-tab.supplemental:hover:not(:disabled) {
+  background: #2a3937;
+}
+
+.dossier-document-tab.supplemental.active {
+  color: #172220;
+  border-color: #a4c4c0;
+  background: #91b1ad;
+  box-shadow: inset 3px 0 #d0e2df;
+}
+
+.dossier-document-tab.supplemental.active::before {
+  background: #c6dcda;
+}
+
 .dossier-document-tab.unread::after {
   position: absolute;
   top: 0.45rem;
@@ -2137,6 +2169,14 @@ h1 {
   color: #62451f;
 }
 
+.dossier-document-tab.supplemental .dossier-document-tab__id {
+  color: #83aaa7;
+}
+
+.dossier-document-tab.supplemental.active .dossier-document-tab__id {
+  color: #315b58;
+}
+
 .dossier-document-tab__title {
   overflow: hidden;
   font-size: 0.78rem;
@@ -2153,6 +2193,25 @@ h1 {
 
 .dossier-document-tab.active .dossier-document-tab__status {
   color: #76582d;
+}
+
+.dossier-document-tab.supplemental .dossier-document-tab__status {
+  color: #91a7a4;
+}
+
+.dossier-document-tab.supplemental.active .dossier-document-tab__status {
+  color: #3f625f;
+}
+
+.dossier-document-tab__added {
+  color: #a8c9c5;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.dossier-document-tab.supplemental.active
+  .dossier-document-tab__added {
+  color: #244e4b;
 }
 
 .dossier-discovery-summary {
@@ -2230,6 +2289,18 @@ h1 {
   content: "";
 }
 
+.dossier-manila-folder--supplemental {
+  border-color: #6e9290;
+  background:
+    linear-gradient(135deg, rgb(224 246 243 / 10%), transparent 30%),
+    #6f8d8a;
+}
+
+.dossier-manila-folder--supplemental::before {
+  border-color: #6e9290;
+  background: #6f8d8a;
+}
+
 .dossier-paper {
   position: relative;
   min-height: 33rem;
@@ -2245,6 +2316,41 @@ h1 {
   box-shadow:
     0 0.35rem 1.1rem rgb(62 42 20 / 32%),
     inset 0 0 3.5rem rgb(102 79 45 / 6%);
+}
+
+.dossier-paper--supplemental {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 1.65rem,
+      rgb(43 75 74 / 3%) 1.65rem 1.7rem
+    ),
+    #e8f0ed;
+  box-shadow:
+    0 0.35rem 1.1rem rgb(22 52 51 / 35%),
+    inset 0 0 3.5rem rgb(69 110 107 / 8%);
+}
+
+.dossier-paper--supplemental .dossier-paper__header {
+  border-bottom-color: #526b69;
+}
+
+.dossier-paper--supplemental .dossier-paper__kind {
+  color: #55716e;
+}
+
+.dossier-paper__added-label {
+  display: inline-block;
+  margin-top: 0.65rem;
+  padding: 0.2rem 0.48rem;
+  color: #315f5b;
+  border: 1px solid #759793;
+  border-radius: 0.2rem;
+  background: rgb(112 154 150 / 10%);
+  font-family: "Courier New", monospace;
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
 }
 
 .dossier-paper__header {
@@ -2839,6 +2945,17 @@ h1 {
   background: #354433;
 }
 
+.dossier-request-card.completed .dossier-request-action--result {
+  color: #e4f1ef;
+  border-color: #668f8b;
+  background: #355f5c;
+}
+
+.dossier-request-card.completed
+  .dossier-request-action--result:hover:not(:disabled) {
+  background: #467570;
+}
+
 .dossier-quote-toolbar {
   display: grid;
   min-height: 4.75rem;
@@ -2965,6 +3082,13 @@ h1 {
   .dossier-index-group + .dossier-index-group {
     flex: 0 0 auto;
     margin-top: 0;
+  }
+
+  .dossier-index-group--result {
+    padding-top: 0;
+    padding-left: 0.75rem;
+    border-top: 0;
+    border-left: 1px dashed #466363;
   }
 
   .dossier-index-group__title {

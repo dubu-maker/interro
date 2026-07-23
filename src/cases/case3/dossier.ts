@@ -435,6 +435,454 @@ export const case3Dossier: DossierDefinition = {
         },
       ],
     },
+    {
+      id: 'D8',
+      group: 'RESULT',
+      kind: 'LOG',
+      title: '무대 설비 제어 로그',
+      documentNumber: 'BY-LIFT-221646',
+      organization: '소극장 백야 · 무대설비 제어실',
+      pages: [
+        {
+          id: 'D8-P1',
+          label: '정밀 분석 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D8-FIELDS',
+              rows: [
+                {
+                  id: 'D8-2242',
+                  label: '22:16:42',
+                  value: '무대 조명 암전 신호 수신',
+                },
+                {
+                  id: 'D8-2246',
+                  label: '22:16:46',
+                  value: 'MANUAL INTERLOCK RELEASE',
+                },
+                {
+                  id: 'D8-2247',
+                  label: '22:16:47',
+                  value: '승강기 하강 시작 · 모터 부하 정상',
+                },
+                {
+                  id: 'D8-2251',
+                  label: '22:16:51',
+                  value: '지하 1층 정위치 도달',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D8-NOTE',
+              tone: 'note',
+              text: '기계 고장 코드 없음. 안전 잠금은 수동 해제 명령으로 풀렸다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D9',
+      group: 'RESULT',
+      kind: 'PRINTED_EXCERPT',
+      title: '마지막 리허설 조명 큐시트',
+      documentNumber: 'BY-CUE-FINAL-73',
+      organization: '소극장 백야 · 조명 조정실',
+      pages: [
+        {
+          id: 'D9-P1',
+          label: '회수·대조 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D9-FIELDS',
+              rows: [
+                {
+                  id: 'D9-OFFICIAL',
+                  label: '공식 대본',
+                  value: 'Q73 암전 · 22:16:50 예정',
+                },
+                {
+                  id: 'D9-RECOVERED',
+                  label: '현장 큐시트',
+                  value: 'Q73 암전 · 22:16:42로 수기 수정',
+                },
+                {
+                  id: 'D9-INITIALS',
+                  label: '승인 표시',
+                  value: 'S.H.J. 이니셜 기재',
+                },
+                {
+                  id: 'D9-HANDWRITING',
+                  label: '필적 1차',
+                  value: '서혜진의 기존 서명과 획순 불일치',
+                },
+                {
+                  id: 'D9-ACCESS',
+                  label: '22:01:47',
+                  value: '조정실 출입문 · 직원 태그 GT-0049 인증',
+                },
+                {
+                  id: 'D9-OWNER',
+                  label: '등록자',
+                  value: '이규태 · 기술감독',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D9-NOTE',
+              tone: 'note',
+              text: '22:02 장미래가 자리를 비운 동안 큐시트가 수정됐다. 해당 구간의 다른 출입 기록은 없다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D10',
+      group: 'RESULT',
+      kind: 'OFFICIAL_REPORT',
+      title: '현장 감식·안전 점검 대조',
+      documentNumber: 'BY-SAFE-03',
+      organization: '공연장 안전사고 합동감식반',
+      pages: [
+        {
+          id: 'D10-P1',
+          label: '대조 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D10-FIELDS',
+              rows: [
+                {
+                  id: 'D10-LOCATION',
+                  label: '채증 위치',
+                  value: '조명 조정실 하단 승강기 경고 스피커',
+                },
+                {
+                  id: 'D10-ITEM',
+                  label: '채증물',
+                  value: '검은 무광 테이프 3겹',
+                },
+                {
+                  id: 'D10-AUDIO',
+                  label: '음향 상태',
+                  value: '경고음 출력 정상 · 외부 전달만 차단',
+                },
+                {
+                  id: 'D10-CHECKLIST',
+                  label: '일일 점검표',
+                  value: '장미래 서명 · “경고 시스템 이상 없음”',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D10-NOTE',
+              tone: 'note',
+              text: '경고음 차단은 수동 잠금장치와 전기적으로 연결돼 있지 않다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D11',
+      group: 'RESULT',
+      kind: 'PRINTED_EXCERPT',
+      title: '전송되지 않은 공개 성명',
+      documentNumber: 'MOBILE-DRAFT-2157',
+      organization: '서혜진 휴대전화 디지털 포렌식',
+      pages: [
+        {
+          id: 'D11-P1',
+          label: '복원 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D11-FIELDS',
+              rows: [
+                {
+                  id: 'D11-SAVED',
+                  label: '최종 저장',
+                  value: '21:57:34',
+                },
+                {
+                  id: 'D11-TITLE',
+                  label: '제목',
+                  value: '12년 전 백야극장 사고에 관하여',
+                },
+                {
+                  id: 'D11-EXCERPT',
+                  label: '본문 일부',
+                  value: '“안전장치가 임의로 해제된 사실을 알고도 침묵했습니다.”',
+                },
+                {
+                  id: 'D11-PLANNED',
+                  label: '발표 예정',
+                  value: '개막 취소 후 일요일 오전 기자회견',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D11-NOTE',
+              tone: 'note',
+              text: '초안은 전송되지 않았다. 삭제 흔적이나 외부 편집 흔적은 없다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D12',
+      group: 'RESULT',
+      kind: 'OFFICIAL_REPORT',
+      title: '2014년 윤선아 추락 사고 원본철',
+      documentNumber: 'BY-2014-ACC-11',
+      organization: '소극장 백야 · 자료실 보존 문서',
+      pages: [
+        {
+          id: 'D12-P1',
+          label: '원본 대조 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D12-FIELDS',
+              rows: [
+                {
+                  id: 'D12-VICTIM',
+                  label: '사망자',
+                  value: '윤선아(31), 배우',
+                },
+                {
+                  id: 'D12-FAMILY',
+                  label: '유족 기록',
+                  value: '딸 윤하늘(당시 15세)',
+                },
+                {
+                  id: 'D12-RELEASE',
+                  label: '임시 해제 작업',
+                  value: '기술 책임 이규태 서명',
+                },
+                {
+                  id: 'D12-FINAL',
+                  label: '최종 보고서',
+                  value: '배우 진입 착오로 수정 · 서혜진 서명',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D12-NOTE',
+              tone: 'note',
+              text: '원본 점검지와 최종 공식 보고서의 사고 원인이 서로 다르다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D13',
+      group: 'RESULT',
+      kind: 'LOG',
+      title: '안전 열쇠 보관함 접근 기록',
+      documentNumber: 'KEYSAFE-B2-0719',
+      organization: '소극장 백야 · 시설관리 시스템',
+      pages: [
+        {
+          id: 'D13-P1',
+          label: '태그 조회 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D13-FIELDS',
+              rows: [
+                {
+                  id: 'D13-AUTH',
+                  label: '22:12:08',
+                  value: '직원 태그 GT-0049 인증',
+                },
+                {
+                  id: 'D13-OWNER',
+                  label: '등록자',
+                  value: '이규태 · 기술감독',
+                },
+                {
+                  id: 'D13-OPEN',
+                  label: '문 열림',
+                  value: '22:12:10~22:12:31',
+                },
+                {
+                  id: 'D13-STOCK',
+                  label: '재고 대조',
+                  value: '승강기 수동 해제 열쇠 1개 미반납',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D13-NOTE',
+              tone: 'note',
+              text: '보관함 강제 개방이나 다른 태그 사용 흔적은 없다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D14',
+      group: 'RESULT',
+      kind: 'OFFICIAL_REPORT',
+      title: '저조도 CCTV 복원 분석서',
+      documentNumber: 'DF-CAM-L2-1638',
+      organization: '경찰청 디지털증거분석실',
+      pages: [
+        {
+          id: 'D14-P1',
+          label: '영상 복원 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D14-FIELDS',
+              rows: [
+                {
+                  id: 'D14-CAMERA',
+                  label: '카메라',
+                  value: '무대 좌측 서비스 통로 CAM-L2',
+                },
+                {
+                  id: 'D14-ENTER',
+                  label: '22:16:38',
+                  value: '이규태 식별 · 통로 진입',
+                },
+                {
+                  id: 'D14-BLACKOUT',
+                  label: '22:16:42',
+                  value: '암전 반사광 확인',
+                },
+                {
+                  id: 'D14-EXIT',
+                  label: '22:17:04',
+                  value: '이규태 통로 이탈',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D14-NOTE',
+              tone: 'note',
+              text: '사고 뒤 구조하러 진입했다는 설명과 달리 추락 전에 이미 통로 안에 있었다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D15',
+      group: 'RESULT',
+      kind: 'LOG',
+      title: '무대 음향 트랙 추출 분석',
+      documentNumber: 'AUDIO-BY-14SEC',
+      organization: '경찰청 디지털증거분석실',
+      pages: [
+        {
+          id: 'D15-P1',
+          label: '비공개 분석 결과',
+          blocks: [
+            {
+              type: 'paragraph',
+              id: 'D15-PRIVATE',
+              tone: 'warning',
+              text: '수사상 비공개 · 용의자에게 원문 제시 금지 · 떠보기 질문에만 사용',
+            },
+            {
+              type: 'fields',
+              id: 'D15-FIELDS',
+              rows: [
+                {
+                  id: 'D15-FIRST',
+                  label: '첫 번째 식별음',
+                  value: '승강기 구동음',
+                },
+                {
+                  id: 'D15-SECOND',
+                  label: '두 번째 식별음',
+                  value: '무대 중앙 방향으로 접근하는 발걸음',
+                },
+                {
+                  id: 'D15-THIRD',
+                  label: '세 번째 식별음',
+                  value: '충돌음·추락음',
+                },
+                {
+                  id: 'D15-SEQUENCE',
+                  label: '사건 순서',
+                  value: '구동음 → 발걸음 → 추락음',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D15-NOTE',
+              tone: 'note',
+              text: '수사상 비공개. 용의자에게 원문을 제시하지 않고 사고 전 동선에 관한 떠보기 질문에만 사용한다.',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'D16',
+      group: 'RESULT',
+      kind: 'OFFICIAL_REPORT',
+      title: '분장실 복도 CCTV 연속성 확인',
+      documentNumber: 'DF-CAM-DRESS-2215',
+      organization: '경찰청 디지털증거분석실',
+      pages: [
+        {
+          id: 'D16-P1',
+          label: '영상 복원 결과',
+          blocks: [
+            {
+              type: 'fields',
+              id: 'D16-FIELDS',
+              rows: [
+                {
+                  id: 'D16-ENTER',
+                  label: '22:15:31',
+                  value: '윤하늘 분장실 구역 진입',
+                },
+                {
+                  id: 'D16-NO-EXIT',
+                  label: '22:15:31~22:17:20',
+                  value: '출입문 추가 개폐 없음',
+                },
+                {
+                  id: 'D16-FALL',
+                  label: '22:16:52',
+                  value: '무대 추락음 발생 시각',
+                },
+                {
+                  id: 'D16-EXIT',
+                  label: '22:17:20',
+                  value: '윤하늘 복도로 나옴',
+                },
+              ],
+            },
+            {
+              type: 'paragraph',
+              id: 'D16-NOTE',
+              tone: 'note',
+              text: '영상은 중단 없는 원본이며 분장실 구역에서 승강기까지 우회 통로가 없다.',
+            },
+          ],
+        },
+      ],
+    },
   ],
   discoveries: [
     {
@@ -481,6 +929,7 @@ export const case3Dossier: DossierDefinition = {
       description: '제어판 표시등과 승강기 동작 기록의 원본 이벤트를 대조한다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: ['D8'],
       resultEvidenceIds: ['E1'],
       resultNotice:
         '22:16:46 승강기에 수동 해제 명령이 입력된 제어 로그가 확인됐다.',
@@ -492,6 +941,7 @@ export const case3Dossier: DossierDefinition = {
       description: '리허설 때 실제 사용된 큐시트를 공식 대본과 대조한다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: ['D9'],
       resultEvidenceIds: ['E2'],
       resultNotice:
         '현장 큐시트에서 암전 시각의 수기 수정과 위조된 승인 이니셜이 확인됐다.',
@@ -503,6 +953,7 @@ export const case3Dossier: DossierDefinition = {
       description: '경고 스피커 현물과 당일 점검표 기재 내용을 대조한다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: ['D10'],
       resultEvidenceIds: ['E3'],
       resultNotice:
         '검은 테이프로 막힌 경고 스피커와 “이상 없음” 점검표가 한 묶음으로 확보됐다.',
@@ -514,6 +965,7 @@ export const case3Dossier: DossierDefinition = {
       description: '삭제 파일과 전송되지 않은 문서 초안을 추출한다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: ['D11'],
       resultEvidenceIds: ['E4'],
       resultNotice:
         '서혜진이 다음 날 12년 전 사고 은폐를 공개하려 한 성명 초안이 복원됐다.',
@@ -525,6 +977,7 @@ export const case3Dossier: DossierDefinition = {
       description: '보존 자료실의 원본 점검지와 최종 공식 보고서를 대조한다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: ['D12'],
       resultEvidenceIds: ['E5'],
       resultNotice:
         '이규태의 안전장치 임시 해제와 서혜진의 허위 보고서 서명이 확인됐다.',
@@ -536,6 +989,7 @@ export const case3Dossier: DossierDefinition = {
       description: '사고 전후 보관함 접근 태그와 열쇠 재고를 조회한다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: ['D13'],
       resultEvidenceIds: ['E6'],
       resultNotice:
         '22:12 이규태의 직원 태그로 보관함이 열렸고 수동 열쇠 하나가 사라졌다.',
@@ -547,6 +1001,7 @@ export const case3Dossier: DossierDefinition = {
       description: '저조도 구간의 인물 윤곽과 출입 시각을 복원한다.',
       kind: 'RESTORATION',
       slotCost: 1,
+      resultDocumentIds: ['D14'],
       resultEvidenceIds: ['E7'],
       resultNotice:
         '이규태가 추락 전 수동 조작반이 있는 통로에 들어간 모습이 복원됐다.',
@@ -558,6 +1013,7 @@ export const case3Dossier: DossierDefinition = {
       description: '암전 구간의 기계음·발소리·충돌음을 시간 순서로 분리한다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: ['D15'],
       resultEvidenceIds: ['E8'],
       resultNotice:
         '승강기 구동음, 발걸음, 추락음의 순서가 복원됐다. 이 결과는 비공개 떠보기용이다.',
@@ -570,6 +1026,7 @@ export const case3Dossier: DossierDefinition = {
       description: '끊긴 것처럼 보이는 후반부 프레임의 연속성을 검증한다.',
       kind: 'RESTORATION',
       slotCost: 1,
+      resultDocumentIds: ['D16'],
       resultEvidenceIds: ['E9'],
       resultNotice:
         '윤하늘은 추락 전부터 추락 후까지 분장실 구역을 나가지 않은 것으로 확인됐다.',

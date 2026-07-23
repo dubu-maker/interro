@@ -78,6 +78,25 @@ const definition: DossierDefinition = {
         },
       ],
     },
+    {
+      id: 'D_RESULT',
+      group: 'RESULT',
+      kind: 'LOG',
+      title: '감식 결과 문서',
+      pages: [
+        {
+          id: 'D_RESULT_P1',
+          label: '결과',
+          blocks: [
+            {
+              type: 'paragraph',
+              id: 'D_RESULT_BODY',
+              text: '감식 완료 뒤 사건 서류에 추가된 결과다.',
+            },
+          ],
+        },
+      ],
+    },
   ],
   discoveries: [
     {
@@ -95,6 +114,7 @@ const definition: DossierDefinition = {
       description: '슬롯을 쓰지 않는 기록 조회다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: ['D_RESULT'],
       resultEvidenceIds: ['E_FREE'],
       resultNotice: '무료 조회가 끝났다.',
       lockedReason: '',
@@ -105,6 +125,7 @@ const definition: DossierDefinition = {
       description: '첫 번째 슬롯 감식이다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: [],
       resultEvidenceIds: ['E_SLOT_A'],
       resultNotice: '감식 A가 끝났다.',
       lockedReason: '',
@@ -115,6 +136,7 @@ const definition: DossierDefinition = {
       description: '두 번째 슬롯 감식이다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: [],
       resultEvidenceIds: ['E_SLOT_B'],
       resultNotice: '감식 B가 끝났다.',
       lockedReason: '',
@@ -125,6 +147,7 @@ const definition: DossierDefinition = {
       description: '초동 보고서를 열어야 보인다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: [],
       resultEvidenceIds: [],
       resultNotice: '문서 개봉 후 조회가 끝났다.',
       lockedReason: '문서를 먼저 열어야 한다.',
@@ -135,6 +158,7 @@ const definition: DossierDefinition = {
       description: '사진 속 표시등을 발견해야 의뢰할 수 있다.',
       kind: 'FORENSIC',
       slotCost: 1,
+      resultDocumentIds: [],
       resultEvidenceIds: ['E_DISCOVERY'],
       resultNotice: '표시등 정밀 감식이 끝났다.',
       lockedReason: '표시등을 먼저 찾아야 한다.',
@@ -145,6 +169,7 @@ const definition: DossierDefinition = {
       description: '첫 감식 완료 뒤 열리는 후속 조회다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: [],
       resultEvidenceIds: [],
       resultNotice: '후속 조회가 끝났다.',
       lockedReason: '선행 감식이 필요하다.',
@@ -155,6 +180,7 @@ const definition: DossierDefinition = {
       description: '닫힌 진술 ID로 열린다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: [],
       resultEvidenceIds: [],
       resultNotice: '진술 기반 조회가 끝났다.',
       lockedReason: '진술이 필요하다.',
@@ -165,6 +191,7 @@ const definition: DossierDefinition = {
       description: '결정론적 방어 단계에서 열린다.',
       kind: 'RECORDS',
       slotCost: 0,
+      resultDocumentIds: [],
       resultEvidenceIds: [],
       resultNotice: '단계 기반 조회가 끝났다.',
       lockedReason: '심문 단계가 부족하다.',
@@ -483,6 +510,8 @@ describe('사건 서류철 결정론적 상태', () => {
       { type: 'REQUEST_ANALYSIS', requestId: 'RQ_FREE' },
     );
     expect(free.accepted).toBe(true);
+    expect(free.newDocumentIds).toEqual(['D_RESULT']);
+    expect(free.state.acquiredDocumentIds).toContain('D_RESULT');
     expect(free.newEvidenceIds).toEqual(['E_FREE']);
     expect(free.state.spentForensicSlots).toBe(2);
   });
@@ -528,7 +557,13 @@ describe('사건 서류철 결정론적 상태', () => {
     );
     expect(requestedAgain.code).toBe('ALREADY_DONE');
     expect(requestedAgain.state).toBe(requested.state);
+    expect(requestedAgain.newDocumentIds).toEqual([]);
     expect(requestedAgain.newEvidenceIds).toEqual([]);
+    expect(
+      requestedAgain.state.acquiredDocumentIds.filter(
+        (documentId) => documentId === 'D_RESULT',
+      ),
+    ).toEqual(['D_RESULT']);
     expect(requestedAgain.state.completedRequestIds).toEqual(['RQ_FREE']);
   });
 });

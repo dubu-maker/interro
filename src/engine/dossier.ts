@@ -93,7 +93,7 @@ export interface DossierPage {
 
 export interface DossierDocument {
   id: string;
-  group: 'INITIAL' | 'REFERENCE' | 'EXAMINATION';
+  group: 'INITIAL' | 'REFERENCE' | 'EXAMINATION' | 'RESULT';
   kind: DossierDocumentKind;
   title: string;
   documentNumber?: string;
@@ -127,6 +127,7 @@ export interface DossierRequest {
   description: string;
   kind: 'FORENSIC' | 'RECORDS' | 'RESTORATION';
   slotCost: 0 | 1;
+  resultDocumentIds: readonly string[];
   resultEvidenceIds: readonly string[];
   resultNotice: string;
   lockedReason: string;
@@ -438,6 +439,7 @@ export function resolveDossierAction(
 ): DossierOutcome {
   const next = mutableState(state);
   const newDiscoveryIds: string[] = [];
+  const requestDocumentIds: string[] = [];
   const seedEvidenceIds: string[] = [];
   const actionNotices: string[] = [];
 
@@ -503,6 +505,12 @@ export function resolveDossierAction(
     }
     next.completedRequestIds.add(request.id);
     next.spentForensicSlots += request.slotCost;
+    for (const documentId of request.resultDocumentIds) {
+      if (!next.acquiredDocumentIds.has(documentId)) {
+        next.acquiredDocumentIds.add(documentId);
+        requestDocumentIds.push(documentId);
+      }
+    }
     for (const evidenceId of request.resultEvidenceIds) {
       if (!snapshot.acquiredEvidenceIds.has(evidenceId)) {
         seedEvidenceIds.push(evidenceId);
@@ -519,6 +527,10 @@ export function resolveDossierAction(
   );
   return outcome(true, 'OK', freezeState(next), {
     ...settled,
+    newDocumentIds: [
+      ...requestDocumentIds,
+      ...settled.newDocumentIds,
+    ],
     newDiscoveryIds,
     notices: [...actionNotices, ...settled.notices],
   });
