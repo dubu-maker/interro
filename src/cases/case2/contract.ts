@@ -281,6 +281,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_I_DROVE',
       meaning:
         '사고 당시 자신이 차량을 운전했고 피해 오토바이를 충격했다고 자백한다.',
+      fallbackLine: '운전한 사람은 접니다. 사고를 낸 것도 저입니다.',
       truth: 'false',
       topicId: 'DRIVER_IDENTITY',
       valueId: 'SELF',
@@ -289,12 +290,14 @@ export const kimMancheolContract: CaseContract = {
     {
       id: 'C_RIDER_RIGHT',
       meaning: '피해 오토바이가 오른쪽에서 갑자기 튀어나왔다고 주장한다.',
+      fallbackLine: '오토바이는 제 오른쪽에서 갑자기 들어왔습니다.',
       truth: 'false',
       contradictedBy: ['M3'],
     },
     {
       id: 'C_HOME_DIRECT',
       meaning: '사고 뒤 다른 곳에 들르지 않고 곧장 집으로 갔다고 주장한다.',
+      fallbackLine: '사고 뒤에는 다른 곳에 들르지 않고 곧장 집으로 갔습니다.',
       truth: 'false',
       topicId: 'POST_CRASH_ROUTE',
       valueId: 'HOME_DIRECT',
@@ -303,24 +306,28 @@ export const kimMancheolContract: CaseContract = {
     {
       id: 'C_SOBER',
       meaning: '그날 술을 마시지 않았다고 주장한다.',
+      fallbackLine: '그날 술은 마시지 않았습니다.',
       truth: 'false',
       contradictedBy: ['M2'],
     },
     {
       id: 'C_BEFORE_MIDNIGHT',
       meaning: '사고가 자정 전이었다고만 기억한다고 말한다.',
+      fallbackLine: '정확한 시각은 몰라도 자정 전이었던 건 기억합니다.',
       truth: 'partial',
     },
     {
       id: 'C_MEMORY_BLANK',
       meaning:
         '사고 충격과 경황 때문에 충돌 순간의 감각적 세부는 기억나지 않는다고 회피한다.',
+      fallbackLine: '충돌 순간은 경황이 없어서 세세하게 기억나지 않습니다.',
       truth: 'partial',
       contradictedBy: ['M6'],
     },
     {
       id: 'C_DAUGHTER_IDENTITY',
       meaning: '김서연은 자신의 딸이라는 가족관계를 인정한다.',
+      fallbackLine: '김서연은 제 딸입니다.',
       truth: 'true',
       topicId: 'DAUGHTER_IDENTITY',
       valueId: 'DAUGHTER',
@@ -329,6 +336,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_CARD_OWNERSHIP',
       meaning:
         '87,000원이 결제된 카드는 자기 명의라고 인정하되 사용 경위만 다툰다.',
+      fallbackLine: '그 카드는 제 명의가 맞지만, 그 결제가 사고를 설명하진 않습니다.',
       truth: 'true',
       topicId: 'CARD_OWNERSHIP',
       valueId: 'SELF',
@@ -337,6 +345,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_CAR_OWNERSHIP',
       meaning:
         '사고 차량이 자기 명의라는 사실을 인정하고, 운전자는 자백대로 자신이라고 주장한다.',
+      fallbackLine: '사고 차량은 제 명의이고, 운전한 사람도 저입니다.',
       truth: 'true',
       topicId: 'CAR_OWNERSHIP',
       valueId: 'SELF',
@@ -345,6 +354,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_CALL_OCCURRED',
       meaning:
         '23시 52분 김서연과 통화한 사실을 인정하되 사고와의 관련성은 부인한다.',
+      fallbackLine: '23시 52분에 김서연과 통화한 건 맞지만 사고와는 관계없습니다.',
       truth: 'true',
       topicId: 'CALL_OCCURRED',
       valueId: 'YES',
@@ -352,12 +362,14 @@ export const kimMancheolContract: CaseContract = {
     {
       id: 'C_DAUGHTER_UNRELATED',
       meaning: '딸은 이 사고와 관계없다고 한 문장으로 선을 긋는다.',
+      fallbackLine: '제 딸은 이 사고와 관계없습니다.',
       truth: 'false',
     },
     {
       id: 'C_RESTAURANT_PRESENT',
       meaning:
         '그날 왕곱창에 있었던 사실은 인정하지만 사고 전후의 정확한 시각은 흐리다고 주장한다.',
+      fallbackLine: '그날 왕곱창에 있었지만 사고 전후의 정확한 시각은 기억이 흐립니다.',
       truth: 'partial',
       topicId: 'POST_CRASH_ROUTE',
       valueId: 'RESTAURANT_PRESENT',
@@ -367,6 +379,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_CARD_LEFT_BEHIND',
       meaning:
         '왕곱창에는 카드를 두고 먼저 나왔으며 동석자가 나중에 결제했다고 주장한다.',
+      fallbackLine: '카드는 왕곱창에 두고 먼저 나왔고, 동석자가 나중에 결제했습니다.',
       truth: 'false',
       contradictedBy: ['M2'],
     },
@@ -374,6 +387,7 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_SEAT_ALWAYS_FORWARD',
       meaning:
         '평소에도 운전석을 앞으로 바짝 당겨 운전했다고 재확인한다.',
+      fallbackLine: '저는 평소에도 운전석을 앞으로 바짝 당겨 운전합니다.',
       truth: 'false',
       topicId: 'SEAT_HABIT',
       valueId: 'FRONT',
@@ -383,36 +397,42 @@ export const kimMancheolContract: CaseContract = {
       id: 'C_SEAT_MOVED_LATER',
       meaning:
         '사고 이후 누군가 운전석 위치를 바꿨을 수 있다고 근거 없이 주장한다.',
+      fallbackLine: '사고 뒤에 누군가 운전석 위치를 바꿨을 수도 있습니다.',
       truth: 'false',
       contradictedBy: ['M1'],
     },
     {
       id: 'C_CCTV_TIME_WRONG',
       meaning: '식당 CCTV의 시각이나 영상 판독이 잘못됐을 수 있다고 주장한다.',
+      fallbackLine: '식당 CCTV의 시각이나 영상 판독이 정확한지부터 확인해야 합니다.',
       truth: 'false',
       contradictedBy: ['M2'],
     },
     {
       id: 'C_TAKE_MY_WORD',
       meaning: '기록보다 자기가 서명한 자백을 믿어 달라고 요구한다.',
+      fallbackLine: '제가 서명한 자백 그대로 받아들여 주십시오.',
       truth: 'false',
     },
     {
       id: 'C_ACCEPTS_RUIN',
       meaning:
         '개인택시 면허와 생계를 잃는 결과까지 알고도 자신의 자백을 거두지 않겠다고 말한다.',
+      fallbackLine: '면허와 생계를 잃게 되더라도 제 자백은 거두지 않겠습니다.',
       truth: 'true',
     },
     {
       id: 'C_PROTECTS_SOMEONE',
       meaning:
         '자신의 처벌보다 지켜야 할 누군가의 앞날이 더 중요하다는 마음을 간접적으로 드러낸다.',
+      fallbackLine: '제 처벌보다 지켜야 할 사람의 앞날이 더 중요할 때도 있습니다.',
       truth: 'partial',
     },
     {
       id: 'C_NOT_DRIVER',
       meaning:
         '수사관이 자신이 운전자가 아니라는 사실을 이미 안다고 간접적으로 인정한다.',
+      fallbackLine: '형사님은 이미 제가 운전자가 아니라고 보고 계신 것 같습니다.',
       truth: 'true',
       topicId: 'DRIVER_IDENTITY',
       valueId: 'NOT_SELF',
@@ -420,22 +440,26 @@ export const kimMancheolContract: CaseContract = {
     {
       id: 'C_ASKS_ABOUT_CHILD',
       meaning: '처음으로 심문관에게 자식이 있느냐고 묻는다.',
+      fallbackLine: '형사님도 자식이 있으십니까?',
       truth: 'true',
     },
     {
       id: 'C_DAUGHTER_DROVE',
       meaning: '사고 당시 차량을 운전한 사람은 딸 김서연이었다고 밝힌다.',
+      fallbackLine: '그날 차를 운전한 사람은 제 딸 김서연이었습니다.',
       truth: 'true',
     },
     {
       id: 'C_DAUGHTER_DRANK',
       meaning: '김서연이 술을 마신 상태로 차량을 몰았다고 밝힌다.',
+      fallbackLine: '서연이는 술을 마신 상태로 차를 몰았습니다.',
       truth: 'true',
     },
     {
       id: 'C_FALSE_CONFESSION_FOR_DAUGHTER',
       meaning:
         '딸의 범행과 앞날을 지키기 위해 자신이 운전자라고 허위 자백했다고 밝힌다.',
+      fallbackLine: '딸의 범행과 앞날을 지키려고 제가 운전했다고 거짓 자백했습니다.',
       truth: 'true',
     },
   ],

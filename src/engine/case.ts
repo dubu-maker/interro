@@ -1,5 +1,6 @@
 import type { CaseContract } from './contract';
 import type { CourtDefinition } from './court';
+import type { InterrogationExperienceDefinition } from './interrogationDynamics';
 import type { PsychologyTrialDefinition } from './psychologyTrial';
 import type { SceneDefinition } from './scene';
 import type { Evidence } from './types';
@@ -61,6 +62,9 @@ export interface CaseDefinition {
   scene?: SceneDefinition;
   // 심리·법정 특화 사건은 일반 심문 계약 위에 별도 결정론적 진행 규칙을 얹는다.
   psychologyTrial?: PsychologyTrialDefinition;
+  // 자유 질문의 표현과 별개로 전술·주제·진술 강도를 판정하는 결정론적
+  // 심리전 계층. 없는 사건은 기존 심문 흐름을 그대로 쓴다.
+  interrogationExperience?: InterrogationExperienceDefinition;
   court?: CourtDefinition;
   evidences: readonly Evidence[];
   suspects: readonly CaseSuspect[];

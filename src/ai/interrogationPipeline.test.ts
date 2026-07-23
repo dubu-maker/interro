@@ -80,4 +80,71 @@ describe('입장 계약 심문 파이프라인', () => {
     ]);
     expect(result.usedLineFallback).toBe(false);
   });
+
+  it('입장 폴백에서도 계획자가 기록한 보조 진술을 화면 대사에 남긴다', async () => {
+    const provider = new ScriptedProvider([
+      '{"speechAct":"PARTIAL_ADMISSION","claimIds":["C_CALL_OCCURRED"],"emotion":"DEFENSIVE","counterQuestion":false}',
+      '제가 운전한 것은 아닙니다.',
+      '차를 타지도 않았습니다.',
+    ]);
+
+    const result = await runSuspectTurn({
+      provider,
+      model: 'test-model',
+      contract: kimMancheolContract,
+      state: createContractState(kimMancheolContract),
+      suspect,
+      question: '23시 52분 김서연과 통화한 사실은 인정합니까?',
+      recentTurns: [],
+    });
+
+    expect(result.usedLineFallback).toBe(true);
+    expect(result.plan.claimIds).toEqual([
+      'C_DAUGHTER_IDENTITY',
+      'C_CALL_OCCURRED',
+    ]);
+    expect(result.line).toContain('운전한 사람은 접니다');
+    expect(result.line).toContain('김서연은 제 딸입니다');
+    expect(result.line).toContain('23시 52분 김서연과 통화');
+  });
+
+  it('선택한 대화 주제 밖의 공개 진술도 planner 후보에서 제외한다', async () => {
+    const provider = new ScriptedProvider([
+      '{"speechAct":"PARTIAL_ADMISSION","claimIds":["C_SEAT_ALWAYS_FORWARD","C_CALL_OCCURRED"],"emotion":"CALM","counterQuestion":false}',
+      '저는 평소에도 운전석을 앞으로 바짝 당겨 운전합니다.',
+    ]);
+
+    const result = await runSuspectTurn({
+      provider,
+      model: 'test-model',
+      contract: kimMancheolContract,
+      state: createContractState(kimMancheolContract),
+      suspect,
+      question: '평소 운전석 위치를 설명해 보세요.',
+      recentTurns: [],
+      interaction: {
+        topicLabel: '차량·운전석',
+        topicDescription: '운전석 습관을 확인한다.',
+        tacticLabel: '세부 요구',
+        tacticInstruction: '구체적으로 답한다.',
+        preferredClaimIds: [
+          'C_CAR_OWNERSHIP',
+          'C_SEAT_ALWAYS_FORWARD',
+          'C_SEAT_MOVED_LATER',
+        ],
+        allowModelCounterQuestion: false,
+      },
+    });
+
+    expect(result.plan.claimIds).toEqual(['C_SEAT_ALWAYS_FORWARD']);
+    expect(provider.requests[0]?.systemPrompt).toContain(
+      'C_SEAT_ALWAYS_FORWARD',
+    );
+    expect(provider.requests[0]?.systemPrompt).not.toContain(
+      'C_CALL_OCCURRED:',
+    );
+    expect(provider.requests[0]?.systemPrompt).not.toContain(
+      'C_SEAT_MOVED_LATER',
+    );
+  });
 });

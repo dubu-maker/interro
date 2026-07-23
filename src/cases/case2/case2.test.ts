@@ -4,11 +4,16 @@ import { judgeCourt, type CourtSubmission } from '../../engine/court';
 import {
   commitForensicSelection,
   createPsychologyTrialState,
+  requestForensicOption,
   resolveConfrontation,
   resolveFinale,
   resolveProbe,
   toggleForensicOption,
 } from '../../engine/psychologyTrial';
+import {
+  createInterrogationDynamicsState,
+  resolveInterrogationTurn,
+} from '../../engine/interrogationDynamics';
 import { kimMancheolContract } from './contract';
 import { case2 } from './index';
 
@@ -68,6 +73,88 @@ describe('사건 2 콘텐츠', () => {
         expect(evidence.view.title, evidence.id).toBeTruthy();
       }
     }
+  });
+
+  it('자유 심문 주제·전술과 가설형 순차 감식의 연결이 완전하다', () => {
+    const experience = case2.interrogationExperience;
+    const trial = requireTrial();
+    if (!experience) {
+      throw new Error('case2 자유 심문 설정이 없습니다.');
+    }
+
+    const topicIds = experience.topics.map((topic) => topic.id);
+    const contractClaimIds = new Set(
+      kimMancheolContract.claims.map((claim) => claim.id),
+    );
+    expect(topicIds).toHaveLength(8);
+    expect(new Set(topicIds).size).toBe(topicIds.length);
+    expect(experience.maxCounterQuestions).toBe(3);
+    expect(
+      experience.claims.every((claim) => contractClaimIds.has(claim.id)),
+    ).toBe(true);
+    expect(trial.forensicMode).toBe('SEQUENTIAL');
+    for (const option of trial.forensicOptions) {
+      expect(option.hypothesis?.question).toBeTruthy();
+      expect(
+        option.hypothesis?.requiredTopicIds.every((topicId) =>
+          topicIds.includes(topicId),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('초기 자백을 진술 고정으로 못 박고 감식 결과를 하나씩 받는다', () => {
+    const experience = case2.interrogationExperience;
+    const trial = requireTrial();
+    if (!experience) {
+      throw new Error('case2 자유 심문 설정이 없습니다.');
+    }
+    const initialDynamics = createInterrogationDynamicsState(
+      experience,
+      kimMancheolContract.initialClaimIds ?? [],
+    );
+    const pinned = resolveInterrogationTurn(
+      experience,
+      initialDynamics,
+      {
+        tacticId: 'PIN_STATEMENT',
+        topicId: 'CONFESSION_CORE',
+        claimIds: ['C_I_DROVE'],
+      },
+    );
+    expect(
+      pinned.state.statements.find(
+        (statement) => statement.claimId === 'C_I_DROVE',
+      )?.strength,
+    ).toBe('COMMITTED');
+    expect(pinned.newCommitmentClaimIds).toEqual(['C_I_DROVE']);
+
+    let trialState = createPsychologyTrialState(trial);
+    const first = requestForensicOption(
+      trial,
+      trialState,
+      'FORENSIC_SEAT',
+      2,
+    );
+    expect(first.evidenceIds).toEqual(['F01']);
+    expect(first.state.phase).toBe('SESSION_ONE');
+    trialState = first.state;
+    const second = requestForensicOption(
+      trial,
+      trialState,
+      'FORENSIC_RESTAURANT',
+      3,
+    );
+    expect(second.evidenceIds).toEqual(['F03']);
+    expect(second.state.phase).toBe('SESSION_ONE');
+    const third = requestForensicOption(
+      trial,
+      second.state,
+      'FORENSIC_ROUTE',
+      4,
+    );
+    expect(third.evidenceIds).toEqual(['F04']);
+    expect(third.state.phase).toBe('SESSION_TWO');
   });
 
   it('자수 조서의 네 진술을 모델 출력과 무관하게 0턴에 기록한다', () => {

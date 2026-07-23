@@ -10,6 +10,7 @@ import {
   buildFallbackPlan,
   buildPlannerPrompt,
   parsePlannerResponse,
+  type InterrogationDirection,
   type ResponsePlan,
 } from './planner';
 import {
@@ -52,6 +53,9 @@ export interface SuspectTurnRequest {
   // 탁자에 올려 둔 증거. 계획·렌더·검사 문맥에 포함되어 용의자가
   // 해당 증거를 자연스럽게 언급할 수 있다 (전환은 엔진이 별도 처리).
   presentedEvidence?: { id: string; name: string; description: string };
+  // 자유 문장은 그대로 전달하되, 플레이어가 고른 닫힌 전술·주제로
+  // 이번 대화의 방향을 명시한다. 하드 판정은 호출자가 별도로 처리한다.
+  interaction?: InterrogationDirection;
   // 직전 답변이 되물음으로 끝났으면 true. 연속 반문을 막는 데 쓴다.
   lastCounterQuestion?: boolean;
   // 렌더링이 폐기될 때마다 호출된다 (UI 표시용).
@@ -72,7 +76,26 @@ export async function runSuspectTurn(
     : '';
   const stage = getStage(contract, state.stageId);
   const position = getActivePosition(contract, state);
-  const candidates = allowedClaims(contract, state);
+  const allCandidates = allowedClaims(contract, state);
+  const preferredClaimIds = new Set(
+    request.interaction?.preferredClaimIds ?? [],
+  );
+  const focusedCandidates = allCandidates.filter((candidate) =>
+    preferredClaimIds.has(candidate.id),
+  );
+  // 플레이어가 주제를 명시한 사건에서는 그 주제의 공개 claim만 planner
+  // 선택지로 준다. 부인 불가 사실과 진술 고정 claim은 아래에서 별도로
+  // 주입하므로, 자유 질문이 주제 밖 진술을 우연히 끌어내지 못한다.
+  const candidates =
+    request.interaction && focusedCandidates.length > 0
+      ? focusedCandidates
+      : allCandidates;
+  const plannerInteraction = request.interaction
+    ? {
+        ...request.interaction,
+        preferredClaimIds: candidates.map((candidate) => candidate.id),
+      }
+    : undefined;
   let inputTokens = 0;
   let outputTokens = 0;
 
@@ -84,6 +107,7 @@ export async function runSuspectTurn(
     contract.language,
     suspect.name,
     position,
+    plannerInteraction,
   );
   let plan: ResponsePlan | undefined;
   let plannerAttempts = 0;
@@ -111,17 +135,27 @@ export async function runSuspectTurn(
     position?.undeniableFacts.filter((fact) =>
       requiredClaimIds.includes(fact.claimId),
     ) ?? [];
-  if (requiredClaimIds.length > 0) {
+  const allowedCandidateIds = new Set(
+    allCandidates.map((candidate) => candidate.id),
+  );
+  const forcedClaimIds = (request.interaction?.forceClaimIds ?? []).filter(
+    (claimId) => allowedCandidateIds.has(claimId),
+  );
+  const injectedClaimIds = [...requiredClaimIds, ...forcedClaimIds];
+  if (injectedClaimIds.length > 0) {
     plan = {
       ...plan,
       speechAct: 'PARTIAL_ADMISSION',
       claimIds: [
-        ...new Set([...requiredClaimIds, ...plan.claimIds]),
+        ...new Set([...injectedClaimIds, ...plan.claimIds]),
       ].slice(0, 2),
     };
   }
   // 반문 빈도 캡: 직전 답변이 되물음이었으면 연속 반문을 강제로 끈다.
   if (request.lastCounterQuestion && plan.counterQuestion) {
+    plan = { ...plan, counterQuestion: false };
+  }
+  if (request.interaction?.allowModelCounterQuestion === false) {
     plan = { ...plan, counterQuestion: false };
   }
 
@@ -147,6 +181,7 @@ The detective has just placed evidence on the table: ${evidence.name} — ${evid
       approvedMeanings,
       contract.language,
       position,
+      request.interaction,
     ) + evidenceContext;
   const inspectionInput = {
     approvedMeanings,
@@ -197,17 +232,38 @@ The detective has just placed evidence on the table: ${evidence.name} — ${evid
     }
   }
   if (!lineAccepted) {
+    const claimFallbackLines = plan.claimIds
+      .map((claimId) => getClaim(contract, claimId))
+      .filter((claim) => claim !== undefined)
+      .map((claim) => claim.fallbackLine ?? claim.meaning);
     const approvedFallback = composeFallbackLine(
-      approvedMeanings,
+      claimFallbackLines,
       contract.language,
     );
+    const positionCoveredClaimIds = new Set([
+      ...(position?.protectedClaimIds ?? []),
+      ...requiredClaimIds,
+    ]);
+    const supplementalMeanings = plan.claimIds
+      .filter((claimId) => !positionCoveredClaimIds.has(claimId))
+      .map((claimId) => getClaim(contract, claimId))
+      .filter((claim) => claim !== undefined)
+      .map((claim) => claim.fallbackLine ?? claim.meaning);
+    const supplementalFallback =
+      supplementalMeanings.length > 0
+        ? composeFallbackLine(supplementalMeanings, contract.language)
+        : '';
     const undeniableFallback = requiredFacts
       .map((fact) => fact.fallbackLine)
       .join(' ');
     line = position
-      ? requiredFacts.length > 0
-        ? `${position.fallbackLine} ${undeniableFallback}`
-        : position.fallbackLine
+      ? [
+          position.fallbackLine,
+          undeniableFallback,
+          supplementalFallback,
+        ]
+          .filter(Boolean)
+          .join(' ')
       : approvedFallback;
   }
 

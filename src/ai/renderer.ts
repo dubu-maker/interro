@@ -1,4 +1,7 @@
-import type { ResponsePlan } from './planner';
+import type {
+  InterrogationDirection,
+  ResponsePlan,
+} from './planner';
 import { inspectSuspectResponse } from './responseGuard';
 import type {
   ForbiddenLinePattern,
@@ -53,11 +56,17 @@ export function buildRendererPrompt(
   approvedMeanings: readonly string[],
   language: PlayLanguage = 'ko',
   position?: PositionContract,
+  direction?: InterrogationDirection,
 ): string {
   const positionBlock = position
     ? language === 'en'
       ? `Position contract: ${position.directive}\n`
       : `입장 계약: ${position.directive}\n`
+    : '';
+  const directionBlock = direction
+    ? language === 'en'
+      ? `Interrogation move: ${direction.tacticLabel}\nFocused topic: ${direction.topicLabel}\nCurrent psychological read: ${direction.psychologyCue ?? 'neutral'}\nActing direction: ${direction.tacticInstruction}\n`
+      : `심문 전술: ${direction.tacticLabel}\n집중 주제: ${direction.topicLabel}\n현재 심리 반응: ${direction.psychologyCue ?? '중립'}\n반응 지시: ${direction.tacticInstruction}\n`
     : '';
   if (language === 'en') {
     const meanings =
@@ -72,6 +81,7 @@ anything else.
 Voice and personality: ${suspect.persona}
 Current stance: ${strategy}
 ${positionBlock}
+${directionBlock}
 Emotion: ${emotionDirectivesEn[plan.emotion]}
 Speech act: ${speechActDirectivesEn[plan.speechAct]}
 
@@ -98,6 +108,7 @@ ${plan.counterQuestion ? '- You may end with one defensive counter-question.' : 
 말투와 성격: ${suspect.persona}
 현재 태도: ${strategy}
 ${positionBlock}
+${directionBlock}
 감정: ${emotionDirectives[plan.emotion]}
 화행: ${speechActDirectives[plan.speechAct]}
 

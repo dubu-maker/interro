@@ -8,6 +8,7 @@ import {
   resolveFinale,
   resolveProbe,
   resolveStatementCommitments,
+  requestForensicOption,
   toggleForensicOption,
   type PsychologyTrialDefinition,
   type PsychologyTrialState,
@@ -194,6 +195,40 @@ describe('심리·법정 사건 상태 생성과 감식 선택', () => {
     const result = commitForensicSelection(definition, two, 3);
     expect(result.evidenceIds).toEqual(['E_SEAT_TEST', 'E_ROUTE']);
     expect(result.state.phase).toBe('SESSION_TWO');
+  });
+
+  it('순차 감식은 대화 사이에 하나씩 결과를 받고 한도를 채우면 두 번째 세션으로 간다', () => {
+    const sequential = { ...definition, forensicMode: 'SEQUENTIAL' as const };
+    const initial = createPsychologyTrialState(sequential);
+    expect(() =>
+      requestForensicOption(sequential, initial, 'F_SEAT', 2),
+    ).toThrow('심문 3턴 이후');
+
+    const first = requestForensicOption(
+      sequential,
+      initial,
+      'F_SEAT',
+      3,
+    );
+    expect(first.evidenceIds).toEqual(['E_SEAT_TEST']);
+    expect(first.state.selectedForensicOptionIds).toEqual(['F_SEAT']);
+    expect(first.state.phase).toBe('SESSION_ONE');
+    expect(() =>
+      requestForensicOption(sequential, first.state, 'F_SEAT', 4),
+    ).toThrow('이미 의뢰한 감식');
+
+    const second = requestForensicOption(
+      sequential,
+      first.state,
+      'F_ROUTE',
+      4,
+    );
+    expect(second.evidenceIds).toEqual(['E_ROUTE']);
+    expect(second.state.selectedForensicOptionIds).toEqual([
+      'F_SEAT',
+      'F_ROUTE',
+    ]);
+    expect(second.state.phase).toBe('SESSION_TWO');
   });
 
   it('알 수 없는 감식과 첫 세션 이후 선택을 거절한다', () => {

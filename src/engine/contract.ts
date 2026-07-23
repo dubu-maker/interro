@@ -8,6 +8,9 @@ export interface CaseClaim {
   id: string;
   // 렌더러에 전달되는 승인된 의미. 이 문장 밖의 물질적 세부는 연기할 수 없다.
   meaning: string;
+  // 모델 대사가 두 번 반려됐을 때 실제 인물이 말할 1인칭 안전 대사.
+  // 생략하면 meaning을 그대로 사용한다.
+  fallbackLine?: string;
   truth: ClaimTruth;
   // 같은 topicId 안의 서로 다른 valueId는 동시에 참일 수 없는 진술로
   // 취급한다. 자연어를 재분석하지 않고 닫힌 claim 집합만으로 번복을 잡는다.

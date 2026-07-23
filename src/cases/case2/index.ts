@@ -1,6 +1,7 @@
 import type { CaseDefinition } from '../../engine/case';
 import type { Evidence } from '../../engine/types';
 import { kimMancheolContract } from './contract';
+import { case2InterrogationExperience } from './interrogation';
 
 const evidences: Evidence[] = [
   {
@@ -396,6 +397,7 @@ export const case2: CaseDefinition = {
   psychologyTrial: {
     minimumTurnsBeforeForensics: 2,
     forensicSelectionCount: 3,
+    forensicMode: 'SEQUENTIAL',
     forensicOptions: [
       {
         id: 'FORENSIC_SEAT',
@@ -407,6 +409,11 @@ export const case2: CaseDefinition = {
         requiredEvidenceIds: ['E03'],
         opportunityCost:
           '선택하지 않으면 운전석 위치로 자백의 물리적 불가능을 확정할 수 없다.',
+        hypothesis: {
+          label: '김만철의 체격으로 보존된 시트 위치에서 정상 운전하기 어렵다.',
+          question: '운전석 습관을 확인하고 실제 신체 조건으로 재연한다.',
+          requiredTopicIds: ['DRIVER_ERGONOMICS'],
+        },
       },
       {
         id: 'FORENSIC_TRACE',
@@ -417,6 +424,11 @@ export const case2: CaseDefinition = {
         requiredEvidenceIds: [],
         opportunityCost:
           '단독 확정 모순이 없다. 이 슬롯을 쓰면 다른 확정 경로 하나를 포기한다.',
+        hypothesis: {
+          label: '운전석에는 김만철이 아닌 운전자의 신체 흔적이 남아 있다.',
+          question: '차량과 운전석을 화제로 삼아 제3자 흔적 가능성을 세운다.',
+          requiredTopicIds: ['DRIVER_ERGONOMICS', 'CALL_RELATION'],
+        },
       },
       {
         id: 'FORENSIC_RESTAURANT',
@@ -428,6 +440,11 @@ export const case2: CaseDefinition = {
         requiredEvidenceIds: ['E06'],
         opportunityCost:
           '선택하지 않으면 카드 기록만으로 사고 시각 알리바이를 확정할 수 없다.',
+        hypothesis: {
+          label: '사고 시각 김만철은 왕곱창에 계속 머물고 있었다.',
+          question: '식당 체류와 카드 결제 시각을 한 동선으로 확인한다.',
+          requiredTopicIds: ['RESTAURANT_ALIBI'],
+        },
       },
       {
         id: 'FORENSIC_ROUTE',
@@ -439,6 +456,11 @@ export const case2: CaseDefinition = {
         requiredEvidenceIds: [],
         opportunityCost:
           '선택하지 않으면 “곧장 귀가” 진술을 동선 기록으로 확정 반박할 수 없다.',
+        hypothesis: {
+          label: '사고 차량은 김만철이 말한 귀가 경로를 따르지 않았다.',
+          question: '사고 뒤 동선을 구체적으로 말하게 한 뒤 실제 경로를 추적한다.',
+          requiredTopicIds: ['POST_CRASH_ROUTE'],
+        },
       },
       {
         id: 'FORENSIC_RIDER',
@@ -450,6 +472,11 @@ export const case2: CaseDefinition = {
         requiredEvidenceIds: [],
         opportunityCost:
           '선택하지 않으면 충돌 방향에 관한 자백을 객관 기록으로 확정 반박할 수 없다.',
+        hypothesis: {
+          label: '피해 오토바이는 오른쪽에서 갑자기 진입하지 않았다.',
+          question: '충돌 방향 진술을 고정한 뒤 배달 기록과 이동 궤적을 확인한다.',
+          requiredTopicIds: ['COLLISION_GEOMETRY'],
+        },
       },
     ],
     probes: [
@@ -593,6 +620,7 @@ export const case2: CaseDefinition = {
       },
     ],
   },
+  interrogationExperience: case2InterrogationExperience,
   court: {
     candidates: [
       {

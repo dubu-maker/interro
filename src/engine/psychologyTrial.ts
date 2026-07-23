@@ -21,6 +21,13 @@ export interface ForensicOption {
   targetContradictionId?: string;
   requiredEvidenceIds: readonly string[];
   opportunityCost: string;
+  // 순차 감식 모드에서는 플레이어가 대화로 해당 주제를 먼저 탐색해야
+  // 이 가설을 의뢰할 수 있다. 판정은 main이 아니라 사건 데이터가 소유한다.
+  hypothesis?: {
+    label: string;
+    question: string;
+    requiredTopicIds: readonly string[];
+  };
 }
 
 export interface ProbeDefinition {
@@ -80,6 +87,9 @@ export interface SpecialConfrontation {
 export interface PsychologyTrialDefinition {
   minimumTurnsBeforeForensics: number;
   forensicSelectionCount: number;
+  // BATCH는 기존처럼 한 번에 모두 고른다. SEQUENTIAL은 대화 사이에
+  // 가설 하나씩 의뢰하며, 정해진 수를 채우면 2회차로 넘어간다.
+  forensicMode?: 'BATCH' | 'SEQUENTIAL';
   forensicOptions: readonly ForensicOption[];
   probes: readonly ProbeDefinition[];
   contradictions: readonly ContradictionRule[];
@@ -427,6 +437,44 @@ export function commitForensicSelection(
       selectedForensicOptionIds: selected,
     },
     evidenceIds: unique(evidenceIds),
+  };
+}
+
+export function requestForensicOption(
+  definition: PsychologyTrialDefinition,
+  state: PsychologyTrialState,
+  optionId: string,
+  completedTurns: number,
+): ForensicCommitResult {
+  requirePhase(state, ['SESSION_ONE'], '감식을 의뢰');
+  if (!canStartForensics(definition, state, completedTurns)) {
+    throw new Error(
+      `감식은 심문 ${definition.minimumTurnsBeforeForensics}턴 이후 의뢰할 수 있습니다.`,
+    );
+  }
+  const option = findForensicOption(definition, optionId);
+  const requested = unique(state.selectedForensicOptionIds);
+  if (requested.includes(optionId)) {
+    throw new Error(`이미 의뢰한 감식입니다: ${optionId}`);
+  }
+  if (requested.length >= definition.forensicSelectionCount) {
+    throw new Error(
+      `감식은 최대 ${definition.forensicSelectionCount}개까지 의뢰할 수 있습니다.`,
+    );
+  }
+
+  const selectedForensicOptionIds = [...requested, optionId];
+  return {
+    state: {
+      ...state,
+      selectedForensicOptionIds,
+      phase:
+        selectedForensicOptionIds.length ===
+        definition.forensicSelectionCount
+          ? 'SESSION_TWO'
+          : 'SESSION_ONE',
+    },
+    evidenceIds: [option.evidenceId],
   };
 }
 

@@ -248,6 +248,164 @@ h1 {
   white-space: nowrap;
 }
 
+.interrogation-control {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid #293541;
+  background:
+    linear-gradient(120deg, rgb(63 97 126 / 12%), transparent 58%),
+    #14191f;
+}
+
+.interrogation-control[hidden],
+.counter-question-panel[hidden] {
+  display: none;
+}
+
+.interrogation-read,
+.interrogation-choice {
+  display: grid;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.interrogation-read {
+  grid-template-columns: minmax(11rem, 0.8fr) minmax(18rem, 1.2fr);
+}
+
+.interrogation-read strong {
+  color: #d7e3ee;
+  font-size: 0.8rem;
+}
+
+.interrogation-meters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(4rem, 1fr));
+  gap: 0.5rem;
+}
+
+.interrogation-meter {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.35rem;
+  align-items: center;
+  color: #8f9baa;
+  font-size: 0.62rem;
+}
+
+.interrogation-meter i {
+  height: 0.3rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2c343e;
+}
+
+.interrogation-meter b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #7394b0;
+}
+
+.interrogation-meter.pressure b {
+  background: #bc745f;
+}
+
+.interrogation-meter.guard b {
+  background: #a38b65;
+}
+
+.interrogation-meter.protectiveness b {
+  background: #9b718f;
+}
+
+.interrogation-choice {
+  grid-template-columns: 1.35fr 1fr;
+}
+
+.choice-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #768495;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.interrogation-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.interrogation-option {
+  padding: 0.32rem 0.58rem;
+  border-color: #344454;
+  border-radius: 999px;
+  color: #9fb1c2;
+  background: #18212a;
+  font-size: 0.68rem;
+}
+
+.interrogation-option.selected {
+  border-color: #86abc8;
+  color: #e2f0fa;
+  background: #24384a;
+  box-shadow: inset 0 0 0 1px rgb(134 171 200 / 18%);
+}
+
+.interrogation-option.exhausted {
+  border-style: dashed;
+  opacity: 0.52;
+}
+
+.interrogation-help {
+  margin: 0;
+  color: #7e8d9d;
+  font-size: 0.69rem;
+  line-height: 1.45;
+}
+
+.counter-question-panel {
+  margin: 0 1.25rem 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #775a40;
+  border-left: 3px solid #bd8b55;
+  border-radius: 0.55rem;
+  color: #ded3c5;
+  background:
+    linear-gradient(90deg, rgb(189 139 85 / 13%), transparent),
+    #191919;
+}
+
+.counter-question-panel strong {
+  display: block;
+  color: #f0dfc5;
+  line-height: 1.5;
+}
+
+.counter-question-panel > p:not(.eyebrow) {
+  margin: 0.3rem 0 0.65rem;
+  color: #9b9288;
+  font-size: 0.7rem;
+}
+
+.counter-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.counter-replies button {
+  padding: 0.38rem 0.65rem;
+  border-color: #594b3c;
+  color: #cbb897;
+  background: #29231e;
+  font-size: 0.7rem;
+}
+
 .suspect-card h2,
 .suspect-card p {
   margin-bottom: 0.15rem;
@@ -554,10 +712,47 @@ h1 {
   color: #c59f69;
 }
 
+.statement-strength {
+  display: inline-block;
+  margin-left: 0.2rem;
+  padding: 0.08rem 0.35rem;
+  border: 1px solid #4a5664;
+  border-radius: 999px;
+  color: #9aaaba;
+  font-size: 0.58rem;
+  font-weight: 750;
+  line-height: 1.25;
+  vertical-align: 0.08rem;
+}
+
+.statement-strength.reaffirmed {
+  border-color: #657f92;
+  color: #adc4d3;
+}
+
+.statement-strength.committed {
+  border-color: #9a704d;
+  color: #e1b881;
+  background: rgb(154 112 77 / 12%);
+}
+
+.statement-strength.revised,
+.statement-strength.contradicted {
+  border-color: #965f5f;
+  color: #dba0a0;
+}
+
 .forensic-counter {
   margin: 0 0 0.8rem;
   color: #d6bd8c;
   font-weight: 700;
+}
+
+.forensic-sequential-intro {
+  margin: -0.35rem 0 0.9rem;
+  color: #96a4b2;
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .forensic-grid {
@@ -581,6 +776,18 @@ h1 {
   border-color: #b8a27b;
   background: rgb(184 162 123 / 10%);
   box-shadow: inset 0 0 0 1px rgb(184 162 123 / 22%);
+}
+
+.forensic-option.completed {
+  border-color: #547362;
+  background: rgb(84 115 98 / 10%);
+  cursor: default;
+}
+
+.forensic-option.locked {
+  border-style: dashed;
+  opacity: 0.54;
+  cursor: not-allowed;
 }
 
 .forensic-option input {
@@ -1647,6 +1854,20 @@ h1 {
 
   .psychology-progress > button {
     width: 100%;
+  }
+
+  .interrogation-read,
+  .interrogation-choice {
+    grid-template-columns: 1fr;
+  }
+
+  .interrogation-meters {
+    grid-template-columns: repeat(2, minmax(5rem, 1fr));
+  }
+
+  .counter-question-panel {
+    margin-right: 0.75rem;
+    margin-left: 0.75rem;
   }
 
   .forensic-grid {

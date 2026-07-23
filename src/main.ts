@@ -29,10 +29,21 @@ import {
   resolveFinale,
   resolveProbe,
   resolveStatementCommitments,
+  requestForensicOption,
   toggleForensicOption,
   type PsychologyProgressResult,
   type PsychologyTrialState,
 } from './engine/psychologyTrial';
+import {
+  createInterrogationDynamicsState,
+  INTERROGATION_TACTICS,
+  resolveInterrogationTurn,
+  type AiCounterQuestionEvent,
+  type InterrogationDynamicsState,
+  type InterrogationTacticId,
+  type InterrogationTurnResult,
+  type StatementStrength,
+} from './engine/interrogationDynamics';
 import {
   availableSpots,
   createSceneProgress,
@@ -116,6 +127,10 @@ interface SuspectSession {
   shownHintIds: string[];
   followUpQuestions: string[];
   lastCounterQuestion: boolean;
+  dynamicsState?: InterrogationDynamicsState;
+  selectedTacticId?: InterrogationTacticId;
+  selectedTopicId?: string;
+  pendingCounterQuestion?: AiCounterQuestionEvent;
 }
 
 const sessions = new Map<string, SuspectSession>();
@@ -129,6 +144,7 @@ function session(): SuspectSession {
   let entry = sessions.get(activeSuspectId);
   if (!entry) {
     const current = activeSuspect();
+    const experience = activeCase.interrogationExperience;
     entry = {
       contractState: createContractState(current.contract),
       history: [],
@@ -138,6 +154,16 @@ function session(): SuspectSession {
       shownHintIds: [],
       followUpQuestions: [],
       lastCounterQuestion: false,
+      ...(experience
+        ? {
+            dynamicsState: createInterrogationDynamicsState(
+              experience,
+              current.contract.initialClaimIds ?? [],
+            ),
+            selectedTacticId: experience.defaultTacticId,
+            selectedTopicId: experience.defaultTopicId,
+          }
+        : {}),
     };
     sessions.set(activeSuspectId, entry);
   }
@@ -168,6 +194,9 @@ const reportEvidenceIds = new Set<string>();
 let selectedEvidence: Evidence | undefined;
 // 탁자 위에 올려 둔 증거. 다음 추궁(질문 전송)과 함께 작동한다.
 let slottedEvidence: Evidence | undefined;
+// 순차 감식에서 이번에 의뢰할 가설 하나. 완료 목록은 psychologyState가
+// 소유하므로 모달을 닫았다 열어도 슬롯이 복원된다.
+let pendingForensicOptionId: string | undefined;
 // 막 구조: 현장(1막)이 있으면 현장에서 시작하고, 타살 입건 후 심문(2막).
 let phase: 'scene' | 'interrogation' = activeCase.scene
   ? 'scene'
@@ -268,7 +297,35 @@ app.innerHTML = `
           <button id="psychology-action" type="button"></button>
         </section>
 
+        <section id="interrogation-control" class="interrogation-control" aria-label="심문 전술과 주제" hidden>
+          <div class="interrogation-read">
+            <div>
+              <p class="eyebrow">상대 읽기</p>
+              <strong id="interrogation-read-label">아직 반응을 살피는 중</strong>
+            </div>
+            <div id="interrogation-meters" class="interrogation-meters"></div>
+          </div>
+          <div class="interrogation-choice">
+            <div>
+              <span class="choice-label">대화 주제</span>
+              <div id="interrogation-topics" class="interrogation-options" role="group" aria-label="대화 주제"></div>
+            </div>
+            <div>
+              <span class="choice-label">심문 전술</span>
+              <div id="interrogation-tactics" class="interrogation-options" role="group" aria-label="심문 전술"></div>
+            </div>
+          </div>
+          <p id="interrogation-help" class="interrogation-help"></p>
+        </section>
+
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
+
+        <section id="counter-question-panel" class="counter-question-panel" aria-live="polite" hidden>
+          <p class="eyebrow">상대의 되물음</p>
+          <strong id="counter-question-text"></strong>
+          <p>답변 방식을 고른 뒤 문장을 고쳐서 보낼 수 있습니다.</p>
+          <div id="counter-replies" class="counter-replies"></div>
+        </section>
 
         <div id="evidence-slot" class="evidence-slot" hidden></div>
 
@@ -326,14 +383,14 @@ app.innerHTML = `
         <header class="viewer-header">
           <div>
             <p class="eyebrow">감식 인터미션</p>
-            <h2 id="forensic-title">의뢰할 감식 ${psychologyDefinition?.forensicSelectionCount ?? 3}개를 고르세요</h2>
+            <h2 id="forensic-title">검증할 가설을 고르세요</h2>
           </div>
           <button id="forensic-close" class="viewer-close" type="button" aria-label="닫기">×</button>
         </header>
         <div id="forensic-content" class="viewer-content"></div>
         <footer class="viewer-footer">
-          <span id="forensic-note">선택하지 않은 감식 결과는 이번 플레이에서 얻을 수 없습니다.</span>
-          <button id="forensic-submit" type="button">감식 의뢰 확정</button>
+          <span id="forensic-note">대화에서 세운 가설을 한 번에 하나씩 검증합니다.</span>
+          <button id="forensic-submit" type="button">이 가설 검증</button>
         </footer>
       </div>
     </dialog>
@@ -397,6 +454,29 @@ const psychologyStage = getElement<HTMLElement>('psychology-stage');
 const psychologyCue = getElement<HTMLParagraphElement>('psychology-cue');
 const contradictionList = getElement<HTMLDivElement>('contradiction-list');
 const psychologyAction = getElement<HTMLButtonElement>('psychology-action');
+const interrogationControl = getElement<HTMLElement>('interrogation-control');
+const interrogationReadLabel = getElement<HTMLElement>(
+  'interrogation-read-label',
+);
+const interrogationMeters = getElement<HTMLDivElement>(
+  'interrogation-meters',
+);
+const interrogationTopics = getElement<HTMLDivElement>(
+  'interrogation-topics',
+);
+const interrogationTactics = getElement<HTMLDivElement>(
+  'interrogation-tactics',
+);
+const interrogationHelp = getElement<HTMLParagraphElement>(
+  'interrogation-help',
+);
+const counterQuestionPanel = getElement<HTMLElement>(
+  'counter-question-panel',
+);
+const counterQuestionText = getElement<HTMLElement>(
+  'counter-question-text',
+);
+const counterReplies = getElement<HTMLDivElement>('counter-replies');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
 const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
 const evidenceSlot = getElement<HTMLDivElement>('evidence-slot');
@@ -864,9 +944,15 @@ function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
 function renderStarterQuestions(): void {
   starterQuestionsBox.replaceChildren();
   const active = session();
+  const experience = activeCase.interrogationExperience;
+  const selectedTopic = experience?.topics.find(
+    (entry) => entry.id === active.selectedTopicId,
+  );
   const questions =
     active.history.length === 0
-      ? activeSuspect().contract.starterQuestions
+      ? selectedTopic
+        ? [selectedTopic.starterQuestion]
+        : activeSuspect().contract.starterQuestions
       : active.followUpQuestions;
   if (questions.length === 0) {
     starterQuestionsBox.hidden = true;
@@ -885,6 +971,193 @@ function renderStarterQuestions(): void {
     });
     starterQuestionsBox.append(chip);
   }
+}
+
+function psychologyRead(
+  state: InterrogationDynamicsState,
+): string {
+  const psychology = state.psychology;
+  return psychology.protectiveness >= 70
+    ? '누군가를 지키려는 반응이 강하다'
+    : psychology.guard >= 70
+      ? '방어가 단단해져 같은 압박은 역효과다'
+      : psychology.pressure >= 65
+        ? '압박에 몰려 말이 짧아지고 있다'
+        : psychology.trust >= 60
+          ? '경계가 조금 풀려 감정에 반응한다'
+          : '말보다 반응의 방향을 살펴야 한다';
+}
+
+function renderInterrogationControls(): void {
+  const experience = activeCase.interrogationExperience;
+  const active = session();
+  const state = active.dynamicsState;
+  if (!experience || !state || phase === 'scene') {
+    interrogationControl.hidden = true;
+    return;
+  }
+
+  interrogationControl.hidden = false;
+  const psychology = state.psychology;
+  interrogationReadLabel.textContent = psychologyRead(state);
+
+  interrogationMeters.replaceChildren();
+  const meterEntries: Array<[string, number, string]> = [
+    ['신뢰', psychology.trust, 'trust'],
+    ['압박', psychology.pressure, 'pressure'],
+    ['경계', psychology.guard, 'guard'],
+    ['보호', psychology.protectiveness, 'protectiveness'],
+  ];
+  for (const [labelText, value, className] of meterEntries) {
+    const meter = document.createElement('div');
+    meter.className = `interrogation-meter ${className}`;
+    meter.setAttribute('aria-label', `${labelText} ${value}`);
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    const track = document.createElement('i');
+    const fill = document.createElement('b');
+    fill.style.width = `${value}%`;
+    track.append(fill);
+    const number = document.createElement('small');
+    number.textContent = String(value);
+    meter.append(label, track, number);
+    interrogationMeters.append(meter);
+  }
+
+  interrogationTopics.replaceChildren();
+  for (const topic of experience.topics) {
+    const topicState = state.topics.find(
+      (entry) => entry.topicId === topic.id,
+    );
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'interrogation-option topic';
+    button.textContent = topicState?.exhausted
+      ? `${topic.label} · 소진`
+      : topicState && topicState.turnCount > 0
+        ? `${topic.label} · ${topicState.turnCount}`
+        : topic.label;
+    button.title = topic.description;
+    button.disabled =
+      isWaiting || isCaseEnded() || topicState?.exhausted === true;
+    button.setAttribute(
+      'aria-pressed',
+      String(active.selectedTopicId === topic.id),
+    );
+    if (active.selectedTopicId === topic.id) {
+      button.classList.add('selected');
+    }
+    if (topicState?.exhausted) button.classList.add('exhausted');
+    button.addEventListener('click', () => {
+      active.selectedTopicId = topic.id;
+      if (!questionInput.value.trim()) {
+        questionInput.value = topic.starterQuestion;
+      }
+      renderInterrogationControls();
+      questionInput.focus();
+    });
+    interrogationTopics.append(button);
+  }
+
+  interrogationTactics.replaceChildren();
+  for (const tactic of Object.values(INTERROGATION_TACTICS)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'interrogation-option tactic';
+    button.textContent = tactic.label;
+    button.title = tactic.description;
+    button.disabled = isWaiting || isCaseEnded();
+    button.setAttribute(
+      'aria-pressed',
+      String(active.selectedTacticId === tactic.id),
+    );
+    if (active.selectedTacticId === tactic.id) {
+      button.classList.add('selected');
+    }
+    button.addEventListener('click', () => {
+      active.selectedTacticId = tactic.id;
+      renderInterrogationControls();
+      questionInput.focus();
+    });
+    interrogationTactics.append(button);
+  }
+
+  const selectedTopic = experience.topics.find(
+    (entry) => entry.id === active.selectedTopicId,
+  );
+  const selectedTactic = active.selectedTacticId
+    ? INTERROGATION_TACTICS[active.selectedTacticId]
+    : undefined;
+  interrogationHelp.textContent = slottedEvidence
+    ? `증거 대조 중 · ${slottedEvidence.name}. 선택한 주제의 진술과 기록을 맞댑니다.`
+    : `${selectedTactic?.label ?? '전술'} · ${selectedTactic?.description ?? ''}  /  ${selectedTopic?.label ?? '주제'} · ${selectedTopic?.description ?? ''}`;
+}
+
+function renderCounterQuestionPanel(): void {
+  const experience = activeCase.interrogationExperience;
+  const active = session();
+  const pending = active.pendingCounterQuestion;
+  if (!experience || !pending || phase === 'scene') {
+    counterQuestionPanel.hidden = true;
+    counterReplies.replaceChildren();
+    return;
+  }
+
+  counterQuestionPanel.hidden = false;
+  counterQuestionText.textContent = pending.question;
+  counterReplies.replaceChildren();
+  for (const reply of experience.counterQuestionReplies) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = reply.label;
+    button.disabled = isWaiting || isCaseEnded();
+    button.addEventListener('click', () => {
+      active.selectedTopicId = pending.topicId;
+      active.selectedTacticId = reply.tacticId;
+      questionInput.value = reply.text;
+      renderInterrogationControls();
+      questionInput.focus();
+    });
+    counterReplies.append(button);
+  }
+}
+
+function dialogueClaimIdsForTopic(
+  claimIds: readonly string[],
+  topicId: string,
+): string[] {
+  const experience = activeCase.interrogationExperience;
+  if (!experience) return [];
+  const allowed = new Set(
+    experience.claims
+      .filter((claim) => claim.topicId === topicId)
+      .map((claim) => claim.id),
+  );
+  return [...new Set(claimIds)].filter((claimId) => allowed.has(claimId));
+}
+
+function forcedDialogueClaimIds(
+  active: SuspectSession,
+  topicId: string,
+): string[] {
+  const experience = activeCase.interrogationExperience;
+  if (
+    !experience ||
+    active.selectedTacticId !== 'PIN_STATEMENT' ||
+    !active.dynamicsState
+  ) {
+    return [];
+  }
+  const latest = [...active.dynamicsState.statements]
+    .reverse()
+    .find(
+      (statement) =>
+        statement.topicId === topicId &&
+        statement.strength !== 'REVISED',
+    );
+  if (latest) return [latest.claimId];
+  const topic = experience.topics.find((entry) => entry.id === topicId);
+  return topic?.focusClaimIds.slice(0, 1) ?? [];
 }
 
 const psychologyStageCopy: Readonly<
@@ -965,7 +1238,9 @@ function renderPsychologyProgress(): void {
     const ready = canStartForensics(definition, state, gameState.turn);
     psychologyAction.disabled ||= !ready;
     psychologyAction.textContent = ready
-      ? `감식 ${definition.forensicSelectionCount}개 의뢰`
+      ? definition.forensicMode === 'SEQUENTIAL'
+        ? `가설 감식 ${state.selectedForensicOptionIds.length}/${definition.forensicSelectionCount}`
+        : `감식 ${definition.forensicSelectionCount}개 의뢰`
       : `심문 ${definition.minimumTurnsBeforeForensics}턴 후 감식`;
   } else if (state.phase === 'SESSION_TWO') {
     psychologyAction.textContent = '수사를 마치고 공판으로';
@@ -1044,6 +1319,107 @@ function renderForensicDialog(): void {
   forensicContent.replaceChildren();
 
   const selected = new Set(state.selectedForensicOptionIds);
+  if (definition.forensicMode === 'SEQUENTIAL') {
+    const counter = document.createElement('p');
+    counter.className = 'forensic-counter';
+    counter.textContent = `가설 검증 ${selected.size} / ${definition.forensicSelectionCount}`;
+    const intro = document.createElement('p');
+    intro.className = 'forensic-sequential-intro';
+    intro.textContent =
+      '대화에서 근거를 만든 가설만 의뢰할 수 있습니다. 결과를 확인한 뒤 다음 질문과 감식을 정하세요.';
+    const grid = document.createElement('div');
+    grid.className = 'forensic-grid';
+
+    for (const option of definition.forensicOptions) {
+      const completed = selected.has(option.id);
+      const requiredTopicIds =
+        option.hypothesis?.requiredTopicIds ?? [];
+      const dynamics = session().dynamicsState;
+      const unlocked =
+        requiredTopicIds.length === 0 ||
+        requiredTopicIds.some(
+          (topicId) =>
+            (dynamics?.topics.find(
+              (topic) => topic.topicId === topicId,
+            )?.turnCount ?? 0) > 0,
+        );
+      const row = document.createElement('label');
+      row.className = `forensic-option${pendingForensicOptionId === option.id ? ' selected' : ''}${completed ? ' completed' : ''}${!unlocked ? ' locked' : ''}`;
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'sequential-forensic';
+      input.checked = pendingForensicOptionId === option.id;
+      input.disabled = completed || !unlocked;
+      const copy = document.createElement('span');
+      const name = document.createElement('strong');
+      name.textContent = option.hypothesis?.label ?? option.label;
+      const kind = document.createElement('span');
+      kind.className = `forensic-kind ${option.resolution.toLocaleLowerCase()}`;
+      kind.textContent = completed
+        ? '검증 완료'
+        : option.resolution === 'DIRECT'
+          ? '단독 확정'
+          : option.resolution === 'COMBINATION'
+            ? '조합 확정'
+            : '보조 정황';
+      const description = document.createElement('small');
+      description.textContent = option.hypothesis?.question ?? option.description;
+      const target = document.createElement('small');
+      target.className = 'forensic-impact';
+      const targetRule = definition.contradictions.find(
+        (entry) => entry.id === option.targetContradictionId,
+      );
+      target.textContent = option.targetContradictionId
+        ? `검증 목표 · ${option.targetContradictionId} ${targetRule?.label ?? ''}`
+        : '검증 목표 · 제3자 운전 흔적, 즉시 확정 없음';
+      const requirement = document.createElement('small');
+      requirement.className = 'forensic-requirement';
+      requirement.textContent = completed
+        ? `결과 확보 · ${option.label}`
+        : unlocked
+          ? `대화 근거 확보 · ${requiredTopicIds
+              .map(
+                (topicId) =>
+                  activeCase.interrogationExperience?.topics.find(
+                    (topic) => topic.id === topicId,
+                  )?.label ?? topicId,
+              )
+              .join(' 또는 ')}`
+          : `잠김 · ${requiredTopicIds
+              .map(
+                (topicId) =>
+                  activeCase.interrogationExperience?.topics.find(
+                    (topic) => topic.id === topicId,
+                  )?.label ?? topicId,
+              )
+              .join(' 또는 ')} 주제를 먼저 심문하세요`;
+      const opportunityCost = document.createElement('small');
+      opportunityCost.className = 'forensic-cost';
+      opportunityCost.textContent = `슬롯 판단 · ${option.opportunityCost}`;
+      copy.append(
+        name,
+        kind,
+        description,
+        target,
+        requirement,
+        opportunityCost,
+      );
+      input.addEventListener('change', () => {
+        pendingForensicOptionId = option.id;
+        renderForensicDialog();
+      });
+      row.append(input, copy);
+      grid.append(row);
+    }
+
+    forensicContent.append(counter, intro, grid);
+    forensicSubmit.disabled = pendingForensicOptionId === undefined;
+    forensicNote.textContent = pendingForensicOptionId
+      ? '이 가설 하나를 검증합니다. 결과를 본 뒤 남은 슬롯을 다시 결정할 수 있습니다.'
+      : '대화로 근거를 만든 가설 하나를 선택하세요.';
+    return;
+  }
+
   const atLimit = selected.size >= definition.forensicSelectionCount;
   const counter = document.createElement('p');
   counter.className = 'forensic-counter';
@@ -1142,6 +1518,33 @@ function openForensicDialog(): void {
 function commitForensics(): void {
   const definition = psychologyDefinition;
   if (!definition || !psychologyState) return;
+  if (definition.forensicMode === 'SEQUENTIAL') {
+    if (!pendingForensicOptionId) return;
+    const option = definition.forensicOptions.find(
+      (entry) => entry.id === pendingForensicOptionId,
+    );
+    if (!option) return;
+    const result = requestForensicOption(
+      definition,
+      psychologyState,
+      option.id,
+      gameState.turn,
+    );
+    psychologyState = result.state;
+    for (const evidenceId of result.evidenceIds) {
+      acquiredEvidenceIds.add(evidenceId);
+    }
+    appendMessage(
+      'system',
+      `가설 검증 완료 — ${option.hypothesis?.label ?? option.label}\n감식 결과 입수 — ${option.label}`,
+    );
+    pendingForensicOptionId = undefined;
+    forensicDialog.close();
+    renderEvidence();
+    renderStatus();
+    renderStatements();
+    return;
+  }
   const result = commitForensicSelection(
     definition,
     psychologyState,
@@ -1209,6 +1612,8 @@ function openFinaleDialog(): void {
 function renderStatus(): void {
   renderStarterQuestions();
   renderPsychologyProgress();
+  renderInterrogationControls();
+  renderCounterQuestionPanel();
   sceneStage?.setBusy(isWaiting);
   turnStatus.textContent =
     phase === 'scene'
@@ -1281,12 +1686,32 @@ function renderStatements(): void {
     if (!claim) continue;
     const item = document.createElement('li');
     item.textContent = `${statement.turn}턴 · ${claim.meaning}`;
+    let strength: StatementStrength | 'CONTRADICTED' | undefined =
+      session().dynamicsState?.statements.find(
+        (entry) => entry.claimId === statement.claimId,
+      )?.strength;
     if (statement.status === 'CONTRADICTED') {
       item.classList.add('contradicted');
-      item.textContent += ' (모순)';
+      strength = 'CONTRADICTED';
     } else if (statement.status === 'REVISED') {
       item.classList.add('revised');
-      item.textContent += ' (번복됨)';
+      strength = 'REVISED';
+    }
+    if (strength) {
+      const strengthCopy: Record<
+        StatementStrength | 'CONTRADICTED',
+        string
+      > = {
+        MENTIONED: '최초 주장',
+        REAFFIRMED: '재확인',
+        COMMITTED: '고착',
+        REVISED: '번복',
+        CONTRADICTED: '물증 반박',
+      };
+      const badge = document.createElement('span');
+      badge.className = `statement-strength ${strength.toLocaleLowerCase()}`;
+      badge.textContent = strengthCopy[strength];
+      item.append(' ', badge);
     }
     statementsList.append(item);
   }
@@ -2142,6 +2567,36 @@ questionForm.addEventListener('submit', async (event) => {
   }
 
   const active = session();
+  const experience = activeCase.interrogationExperience;
+  const replyingToCounterQuestion =
+    active.pendingCounterQuestion !== undefined;
+  const selectedTopicId =
+    active.pendingCounterQuestion?.topicId ??
+    active.selectedTopicId ??
+    experience?.defaultTopicId;
+  const selectedTacticId =
+    active.selectedTacticId ?? experience?.defaultTacticId;
+  const selectedTopic = experience?.topics.find(
+    (entry) => entry.id === selectedTopicId,
+  );
+  const selectedTactic = selectedTacticId
+    ? INTERROGATION_TACTICS[selectedTacticId]
+    : undefined;
+  const selectedTopicState = active.dynamicsState?.topics.find(
+    (entry) => entry.topicId === selectedTopicId,
+  );
+  if (
+    experience &&
+    selectedTopicState?.exhausted &&
+    !slottedEvidence
+  ) {
+    appendMessage(
+      'hint',
+      `주제 소진 — ‘${selectedTopic?.label ?? selectedTopicId}’에서는 새 반응이 나오지 않는다. 다른 주제나 증거 대조를 선택하자.`,
+    );
+    renderStatus();
+    return;
+  }
   active.followUpQuestions = active.followUpQuestions.filter(
     (entry) => entry !== question,
   );
@@ -2154,6 +2609,12 @@ questionForm.addEventListener('submit', async (event) => {
     if (!active.presentedEvidenceIds.includes(confrontEvidence.id)) {
       active.presentedEvidenceIds.push(confrontEvidence.id);
     }
+  }
+  if (experience && selectedTopic && selectedTactic) {
+    appendMessage(
+      'system',
+      `심문 전술 — ${selectedTactic.label} · ${selectedTopic.label}`,
+    );
   }
   appendMessage('detective', question);
   active.history.push({ role: 'user', content: question });
@@ -2205,6 +2666,9 @@ questionForm.addEventListener('submit', async (event) => {
       confrontationImpact = progress.impact;
       applyPsychologyProgress(progress);
       if (progress.specialEvent) {
+        if (replyingToCounterQuestion) {
+          active.pendingCounterQuestion = undefined;
+        }
         gameState = recordCompletedTurn(gameState);
         const specialClaims = progress.specialEvent.recordClaimIds ?? [];
         active.contractState = commitStatements(
@@ -2232,6 +2696,9 @@ questionForm.addEventListener('submit', async (event) => {
     }
 
     if (contractReaction) {
+      if (replyingToCounterQuestion) {
+        active.pendingCounterQuestion = undefined;
+      }
       gameState = recordCompletedTurn(gameState);
       const bubble = appendMessage('suspect', '', false);
       bubble.classList.add('streaming');
@@ -2276,6 +2743,25 @@ questionForm.addEventListener('submit', async (event) => {
           }
         : undefined,
       lastCounterQuestion: active.lastCounterQuestion,
+      ...(experience && selectedTopic && selectedTactic && selectedTopicId
+        ? {
+            interaction: {
+              topicLabel: selectedTopic.label,
+              topicDescription: selectedTopic.description,
+              tacticLabel: selectedTactic.label,
+              tacticInstruction: selectedTactic.responseInstruction,
+              preferredClaimIds: selectedTopic.focusClaimIds,
+              forceClaimIds: forcedDialogueClaimIds(
+                active,
+                selectedTopicId,
+              ),
+              allowModelCounterQuestion: false,
+              psychologyCue: active.dynamicsState
+                ? psychologyRead(active.dynamicsState)
+                : undefined,
+            },
+          }
+        : {}),
       onDiscard: (violations) => {
         guardRetryCount += 1;
         responseBubble.textContent =
@@ -2287,7 +2773,9 @@ questionForm.addEventListener('submit', async (event) => {
     });
     totalInputTokens += result.inputTokens;
     totalOutputTokens += result.outputTokens;
-    active.lastCounterQuestion = result.plan.counterQuestion;
+    active.lastCounterQuestion = experience
+      ? false
+      : result.plan.counterQuestion;
     if (result.plan.usedFallback) {
       console.warn('[계획자] 결정론적 기본 계획 사용', result.plan);
     }
@@ -2295,9 +2783,43 @@ questionForm.addEventListener('submit', async (event) => {
       console.warn('[렌더러] 고정 대사 사용', { line: result.line });
     }
 
+    let dynamicsResult: InterrogationTurnResult | undefined;
+    if (
+      experience &&
+      active.dynamicsState &&
+      selectedTopicId &&
+      selectedTacticId
+    ) {
+      dynamicsResult = resolveInterrogationTurn(
+        experience,
+        active.dynamicsState,
+        {
+          tacticId: selectedTacticId,
+          topicId: selectedTopicId,
+          claimIds: dialogueClaimIdsForTopic(
+            result.plan.claimIds,
+            selectedTopicId,
+          ),
+        },
+      );
+      active.dynamicsState = dynamicsResult.state;
+    }
+    if (replyingToCounterQuestion) {
+      active.pendingCounterQuestion = undefined;
+    }
+    const counterQuestion = replyingToCounterQuestion
+      ? undefined
+      : dynamicsResult?.counterQuestion;
+    if (counterQuestion) {
+      active.pendingCounterQuestion = counterQuestion;
+    }
+    const finalLine = counterQuestion
+      ? `${result.line}\n\n${counterQuestion.question}`
+      : result.line;
+
     // 커밋: 검증에 성공한 경우에만 상태와 진술을 함께 반영한다.
-    active.history.push({ role: 'assistant', content: result.line });
-    active.messages.push({ kind: 'suspect', content: result.line });
+    active.history.push({ role: 'assistant', content: finalLine });
+    active.messages.push({ kind: 'suspect', content: finalLine });
     gameState = recordCompletedTurn(gameState);
     const statementCountBefore = active.contractState.statements.length;
     const statementOutcome = commitStatements(
@@ -2332,7 +2854,7 @@ questionForm.addEventListener('submit', async (event) => {
       const commitmentProgress = resolveStatementCommitments(
         psychologyDefinition,
         psychologyState,
-        result.plan.claimIds,
+        dynamicsResult?.newCommitmentClaimIds ?? result.plan.claimIds,
         active.contractState.statements.map((statement) => statement.claimId),
       );
       if (commitmentProgress.impact === 'COMMITMENT_LOCKED') {
@@ -2343,7 +2865,34 @@ questionForm.addEventListener('submit', async (event) => {
     renderStatements();
     runDiscovery();
     lastLatencyMs = performance.now() - startedAt;
-    revealSuspectAnswer(responseBubble, result.line);
+    revealSuspectAnswer(responseBubble, finalLine);
+    if (dynamicsResult) {
+      for (const change of dynamicsResult.statementChanges) {
+        if (change.kind !== 'STRENGTHENED') continue;
+        const claim = getClaim(current.contract, change.claimId);
+        const claimLabel = claim?.meaning ?? change.claimId;
+        if (change.to === 'COMMITTED') {
+          appendMessage(
+            'system',
+            `진술 고착 — ${claimLabel}\n이제 객관 증거와 직접 대조할 수 있다.`,
+          );
+        } else if (change.to === 'REAFFIRMED') {
+          appendMessage(
+            'hint',
+            `진술 재확인 — ${claimLabel}\n한 번 더 확인받거나 ‘진술 고정’ 전술로 못 박을 수 있다.`,
+          );
+        }
+      }
+      if (dynamicsResult.newlyExhausted) {
+        appendMessage(
+          'hint',
+          dynamicsResult.responseDirective.notice ??
+            '이 주제에서는 새 반응이 나오지 않는다.',
+        );
+      } else if (dynamicsResult.stalledNotice) {
+        appendMessage('hint', dynamicsResult.stalledNotice);
+      }
+    }
     if (
       confrontEvidence &&
       (confrontationImpact === undefined ||
@@ -2358,27 +2907,30 @@ questionForm.addEventListener('submit', async (event) => {
     }
 
     // 정체 감지: 새 진술이 2턴 연속 없으면 수사 노트 힌트를 보여준다.
-    if (active.contractState.statements.length > statementCountBefore) {
-      active.stalledTurns = 0;
-    } else {
-      active.stalledTurns += 1;
-      if (active.stalledTurns >= 2) {
-        const hint = selectHint(
-          current.contract,
-          active.contractState,
-          active.presentedEvidenceIds,
-          active.shownHintIds,
-        );
-        if (hint) {
-          active.shownHintIds.push(hint.id);
-          active.stalledTurns = 0;
-          appendMessage('hint', `수사 노트 — ${hint.text}`);
+    if (!experience) {
+      if (active.contractState.statements.length > statementCountBefore) {
+        active.stalledTurns = 0;
+      } else {
+        active.stalledTurns += 1;
+        if (active.stalledTurns >= 2) {
+          const hint = selectHint(
+            current.contract,
+            active.contractState,
+            active.presentedEvidenceIds,
+            active.shownHintIds,
+          );
+          if (hint) {
+            active.shownHintIds.push(hint.id);
+            active.stalledTurns = 0;
+            appendMessage('hint', `수사 노트 — ${hint.text}`);
+          }
         }
       }
     }
   } catch (error) {
     responseBubble.remove();
     active.history.pop();
+    questionInput.value = question;
     const detail = error instanceof Error ? error.message : String(error);
     appendMessage(
       'error',

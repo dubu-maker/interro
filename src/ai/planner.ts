@@ -28,6 +28,17 @@ export interface ResponsePlan {
   usedFallback: boolean;
 }
 
+export interface InterrogationDirection {
+  topicLabel: string;
+  topicDescription: string;
+  tacticLabel: string;
+  tacticInstruction: string;
+  preferredClaimIds: readonly string[];
+  forceClaimIds?: readonly string[];
+  allowModelCounterQuestion?: boolean;
+  psychologyCue?: string;
+}
+
 export function buildPlannerPrompt(
   stage: DefenseStage,
   candidates: readonly CaseClaim[],
@@ -35,6 +46,7 @@ export function buildPlannerPrompt(
   language: 'ko' | 'en' = 'ko',
   suspectName = language === 'en' ? 'the suspect' : '용의자',
   position?: PositionContract,
+  direction?: InterrogationDirection,
 ): string {
   const undeniableIds = new Set(
     position?.undeniableFacts.map((fact) => fact.claimId) ?? [],
@@ -49,6 +61,11 @@ export function buildPlannerPrompt(
     ? language === 'en'
       ? `\nPosition contract: ${position.directive}\n`
       : `\n입장 계약: ${position.directive}\n`
+    : '';
+  const directionBlock = direction
+    ? language === 'en'
+      ? `\nPlayer move: ${direction.tacticLabel}\nFocused topic: ${direction.topicLabel} — ${direction.topicDescription}\nCurrent psychological read: ${direction.psychologyCue ?? '(neutral)'}\nMove instruction: ${direction.tacticInstruction}\nPrefer relevant claims from: ${direction.preferredClaimIds.join(', ') || '(none)'}\n`
+      : `\n플레이어 전술: ${direction.tacticLabel}\n집중 주제: ${direction.topicLabel} — ${direction.topicDescription}\n현재 심리 반응: ${direction.psychologyCue ?? '중립'}\n전술 지시: ${direction.tacticInstruction}\n관련된다면 우선할 진술: ${direction.preferredClaimIds.join(', ') || '(없음)'}\n`
     : '';
 
   if (language === 'en') {
@@ -65,6 +82,7 @@ output JSON only.
 
 Current defense strategy: ${stage.strategy}
 ${positionBlock}
+${directionBlock}
 
 Available claim candidates (never pick outside these IDs):
 ${candidateList}
@@ -100,6 +118,7 @@ ${suspectName}의 반응을 결정한다. 대사를 쓰지 말고 JSON만 출력
 
 현재 방어 전략: ${stage.strategy}
 ${positionBlock}
+${directionBlock}
 
 사용 가능한 진술 후보 (이 ID 밖에서는 절대 고르지 않는다):
 ${candidateList}
