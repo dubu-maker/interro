@@ -93,7 +93,7 @@ const modelFieldLabel = isOpenAiDesktop
     : 'Ollama 모델';
 const sessionLabel = isOpenAiDesktop ? 'OpenAI API 세션' : '로컬 세션';
 
-// 사건 선택: ?case=case1 또는 ?case=case2. 지정하지 않으면 언어별
+// 사건 선택: ?case=case1, ?case=case2, ?case=case3. 지정하지 않으면 언어별
 // 기술 프로토타입으로 돌아간다.
 const urlParams = new URLSearchParams(window.location.search);
 const activeCase = resolveCase(
