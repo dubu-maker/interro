@@ -5,6 +5,7 @@ import {
   leeGyutaeContract,
   yoonHaneulContract,
 } from './contracts';
+import { case3Dossier } from './dossier';
 
 const evidences: Evidence[] = [
   {
@@ -147,22 +148,22 @@ const evidences: Evidence[] = [
   },
   {
     id: 'E8',
-    name: '마지막 14초 통합 기록',
+    name: '비공개 음향 순서 분석',
     description:
-      '조명 콘솔·무대 음향·통로 영상이 암전, 구동음, 발걸음, 추락의 같은 순서를 가리킨다.',
+      '용의자에게 원문을 제시하지 않는 떠보기 정보. 승강기 구동음 뒤 발걸음이 이어졌고 그다음 추락음이 기록됐다.',
+    presentationMode: 'probe',
     view: {
       type: 'document',
-      title: '22:16:42~22:16:58 동기화 분석',
-      documentNumber: 'SYNC-BY-14SEC',
-      organization: '공연장 안전사고 합동감식반',
+      title: '무대 음향 트랙 추출 분석',
+      documentNumber: 'AUDIO-BY-14SEC',
+      organization: '경찰청 디지털증거분석실',
       fields: [
-        { label: '22:16:42', value: '조명 콘솔 Q73 암전 실행' },
-        { label: '22:16:46', value: '무대 음향에 승강기 구동음 기록' },
-        { label: '22:16:49', value: '중앙 방향으로 접근하는 발걸음' },
-        { label: '22:16:52', value: '충돌음·추락음' },
-        { label: '22:16:56', value: '조명 복구 · 암전 지속 14초' },
+        { label: '첫 번째 식별음', value: '승강기 구동음' },
+        { label: '두 번째 식별음', value: '무대 중앙 방향으로 접근하는 발걸음' },
+        { label: '세 번째 식별음', value: '충돌음·추락음' },
+        { label: '사건 순서', value: '구동음 → 발걸음 → 추락음' },
       ],
-      note: '세 장치의 고유 이벤트를 교차 정렬했다. 허용 오차 ±0.18초.',
+      note: '수사상 비공개. 용의자에게 원문을 제시하지 않고 사고 전 동선에 관한 떠보기 질문에만 사용한다.',
     },
   },
   {
@@ -192,6 +193,7 @@ export const case3: CaseDefinition = {
   briefing:
     '토요일 밤 22시 17분, 개막을 앞둔 소극장 백야의 비공개 리허설 중 예술감독 서혜진이 무대 승강기 아래로 추락해 사망했다. 무대는 암전 상태였고 승강기는 지하층에 내려가 있었다. 극장에 남아 있던 장미래, 윤하늘, 이규태는 모두 사고라고 주장하지만 세 사람의 거짓말은 서로 다른 이유에서 시작됐다.',
   maxTurns: 30,
+  dossier: case3Dossier,
   evidences,
   suspects: [
     {
@@ -228,42 +230,10 @@ export const case3: CaseDefinition = {
       contract: leeGyutaeContract,
     },
   ],
-  initialEvidenceIds: ['E1', 'E2', 'E3', 'E4', 'E5'],
+  initialEvidenceIds: [],
   initialSuspectIds: ['mirae', 'haneul', 'gyutae'],
-  unlocks: [
-    {
-      evidenceId: 'E6',
-      notice:
-        '장미래의 진술을 토대로 안전 열쇠 보관함 기록을 확보했다. 사고 직전 접근자를 확인할 수 있다.',
-      trigger: { type: 'stage', suspectId: 'mirae', stageId: 'M_TAPE' },
-    },
-    {
-      evidenceId: 'E7',
-      notice:
-        '서비스 통로 저조도 영상 복원이 끝났다. 이규태의 사고 직전 동선을 확인할 수 있다.',
-      trigger: { type: 'stage', suspectId: 'gyutae', stageId: 'G_KEY' },
-    },
-    {
-      evidenceId: 'E8',
-      notice:
-        '조명·음향·영상 기록의 교차 동기화가 끝났다. 마지막 14초의 순서가 복원됐다.',
-      trigger: {
-        type: 'stage',
-        suspectId: 'gyutae',
-        stageId: 'G_CORRIDOR',
-      },
-    },
-    {
-      evidenceId: 'E9',
-      notice:
-        '분장실 복도 영상의 연속 구간이 복원됐다. 윤하늘의 사고 순간 위치를 확인할 수 있다.',
-      trigger: {
-        type: 'stage',
-        suspectId: 'haneul',
-        stageId: 'H_ARGUMENT',
-      },
-    },
-  ],
+  // 증거는 모두 서류철의 발견·조회·감식 그래프를 통해서만 입수한다.
+  unlocks: [],
   // 이번 슬라이스는 심문만 검증한다. 빈 선택지는 공용 종결·기소 UI를 숨긴다.
   motiveOptions: [],
   methodOptions: [],

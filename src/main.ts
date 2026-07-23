@@ -61,12 +61,24 @@ import {
   type ContractState,
 } from './engine/contract';
 import {
+  createDossierState,
+  resolveDossierAction,
+  resolveDossierQuote,
+  synchronizeDossier,
+  type DossierAction,
+  type DossierOutcome,
+  type DossierQuote,
+  type DossierSnapshot,
+  type DossierState,
+} from './engine/dossier';
+import {
   canAskQuestion,
   createGameState,
   isOvertime,
   recordCompletedTurn,
 } from './engine/gameState';
 import type { Evidence, EvidenceView } from './engine/types';
+import { DossierView } from './presentation/dossierView';
 import type { PhaserSceneStage as PhaserSceneStageInstance } from './presentation/sceneStage';
 import {
   createSceneStageSnapshot,
@@ -175,6 +187,10 @@ const unlockedNotices: string[] = [];
 // 점진 공개 상태: 입수한 증거와 열린 용의자.
 const acquiredEvidenceIds = new Set<string>(activeCase.initialEvidenceIds);
 const unlockedSuspectIds = new Set<string>(activeCase.initialSuspectIds);
+const dossierDefinition = activeCase.dossier;
+let dossierState: DossierState | undefined = dossierDefinition
+  ? createDossierState(dossierDefinition)
+  : undefined;
 // 판정이 내려지면 심문은 종료된다.
 let verdict: VerdictResult | undefined;
 const psychologyDefinition = activeCase.psychologyTrial;
@@ -194,6 +210,10 @@ const reportEvidenceIds = new Set<string>();
 let selectedEvidence: Evidence | undefined;
 // 탁자 위에 올려 둔 증거. 다음 추궁(질문 전송)과 함께 작동한다.
 let slottedEvidence: Evidence | undefined;
+// 저작된 문서 문장만 인용할 수 있다. 증거와 동시에 올릴 수 없으며,
+// quote ID → claim ID 매핑만 결정론적 심문 방향에 사용한다.
+let slottedQuote: DossierQuote | undefined;
+let dossierView: DossierView | undefined;
 // 순차 감식에서 이번에 의뢰할 가설 하나. 완료 목록은 psychologyState가
 // 소유하므로 모달을 닫았다 열어도 슬롯이 복원된다.
 let pendingForensicOptionId: string | undefined;
@@ -234,6 +254,7 @@ app.innerHTML = `
           <input id="model-input" value="${defaultModel}" />
         </label>
         <button id="phase-toggle-button" class="reset-button" type="button" hidden>현장 재조사</button>
+        <button id="dossier-button" class="dossier-button" type="button" ${activeCase.dossier ? '' : 'hidden'}>사건 서류</button>
         <button id="report-button" class="report-button" type="button">사건 종결</button>
         <button id="reset-button" class="reset-button" type="button">새 심문</button>
       </div>
@@ -378,6 +399,10 @@ app.innerHTML = `
       </div>
     </dialog>
 
+    <dialog id="dossier-dialog" class="dossier-dialog" aria-label="사건 서류철">
+      <div id="dossier-root"></div>
+    </dialog>
+
     <dialog id="forensic-dialog" class="evidence-dialog" aria-labelledby="forensic-title">
       <div class="evidence-viewer">
         <header class="viewer-header">
@@ -443,6 +468,7 @@ const sceneAmbient = getElement<HTMLParagraphElement>('scene-ambient');
 const sceneAudioButton = getElement<HTMLButtonElement>('scene-audio-button');
 const sceneAccessibility = getElement<HTMLDetailsElement>('scene-accessibility');
 const phaseToggleButton = getElement<HTMLButtonElement>('phase-toggle-button');
+const dossierButton = getElement<HTMLButtonElement>('dossier-button');
 const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
 const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
 const suspectName = getElement<HTMLHeadingElement>('suspect-name');
@@ -511,6 +537,8 @@ const viewerTitle = getElement<HTMLHeadingElement>('viewer-title');
 const viewerContent = getElement<HTMLDivElement>('viewer-content');
 const viewerClose = getElement<HTMLButtonElement>('viewer-close');
 const viewerPresent = getElement<HTMLButtonElement>('viewer-present');
+const dossierDialog = getElement<HTMLDialogElement>('dossier-dialog');
+const dossierRoot = getElement<HTMLDivElement>('dossier-root');
 
 if (window.matchMedia('(pointer: coarse)').matches) {
   sceneAccessibility.open = true;
@@ -861,6 +889,136 @@ function submitSceneRuling(): void {
   renderStatus();
 }
 
+function dossierSnapshot(): DossierSnapshot {
+  const recordedClaims = new Set<string>();
+  const stages = new Map<string, string>();
+  for (const [suspectId, entry] of sessions) {
+    stages.set(suspectId, entry.contractState.stageId);
+    for (const statement of entry.contractState.statements) {
+      recordedClaims.add(`${suspectId}:${statement.claimId}`);
+    }
+  }
+  return {
+    acquiredEvidenceIds,
+    recordedClaims,
+    stages,
+  };
+}
+
+function applyDossierOutcome(result: DossierOutcome): void {
+  if (!dossierDefinition || !dossierState) return;
+  dossierState = result.state;
+
+  for (const evidenceId of result.newEvidenceIds) {
+    if (acquiredEvidenceIds.has(evidenceId)) continue;
+    acquiredEvidenceIds.add(evidenceId);
+    const evidence = activeCase.evidences.find(
+      (entry) => entry.id === evidenceId,
+    );
+    appendMessage(
+      'hint',
+      `새 증거 입수 — ${evidence?.name ?? evidenceId}`,
+    );
+  }
+  for (const notice of result.notices) {
+    appendMessage('hint', `수사 기록 — ${notice}`);
+  }
+  dossierView?.update(dossierState);
+  renderEvidence();
+}
+
+function runDossierAction(action: DossierAction): void {
+  if (!dossierDefinition || !dossierState || isWaiting || isCaseEnded()) {
+    return;
+  }
+  const result = resolveDossierAction(
+    dossierDefinition,
+    dossierState,
+    dossierSnapshot(),
+    action,
+  );
+  if (!result.accepted) {
+    const message =
+      result.code === 'NO_SLOTS'
+        ? '감식 슬롯이 모두 찼다. 완료한 의뢰는 되돌릴 수 없다.'
+        : result.code === 'LOCKED'
+          ? '아직 이 기록에 접근할 근거가 없다.'
+          : '해당 수사 행동을 처리할 수 없다.';
+    appendMessage('hint', message);
+    dossierView?.update(dossierState);
+    return;
+  }
+  applyDossierOutcome(result);
+  runDiscovery();
+}
+
+function synchronizeDossierFromCase(): void {
+  if (!dossierDefinition || !dossierState) return;
+  const result = synchronizeDossier(
+    dossierDefinition,
+    dossierState,
+    dossierSnapshot(),
+  );
+  applyDossierOutcome(result);
+}
+
+function attachDossierQuote(quoteId: string): void {
+  if (!dossierDefinition || !dossierState || isCaseEnded()) return;
+  const result = resolveDossierQuote(
+    dossierDefinition,
+    dossierState,
+    activeSuspectId,
+    quoteId,
+  );
+  if (!result.valid || !result.quote) {
+    appendMessage('hint', '열람하지 않은 문장은 질문에 인용할 수 없다.');
+    return;
+  }
+  slottedEvidence = undefined;
+  slottedQuote = result.quote;
+  dossierView?.update(dossierState, {
+    attachedQuoteId: result.quote.id,
+  });
+  renderEvidenceSlot();
+  renderEvidence();
+  dossierDialog.close();
+  questionInput.focus();
+}
+
+function openDossier(): void {
+  if (!dossierDefinition || !dossierState) return;
+  dossierView?.update(dossierState, {
+    attachedQuoteId: slottedQuote?.id,
+  });
+  if (!dossierDialog.open) dossierDialog.showModal();
+  dossierView?.activate();
+}
+
+if (dossierDefinition && dossierState) {
+  dossierView = new DossierView(
+    dossierRoot,
+    dossierDefinition,
+    dossierState,
+    {
+      onClose: () => dossierDialog.close(),
+      onOpenDocument: (documentId) =>
+        runDossierAction({ type: 'OPEN_DOCUMENT', documentId }),
+      onInspectDiscovery: (documentId, discoveryId) =>
+        runDossierAction({
+          type: 'INSPECT_DISCOVERY',
+          documentId,
+          discoveryId,
+        }),
+      onAttachQuote: attachDossierQuote,
+      onRequestAnalysis: (requestId) =>
+        runDossierAction({ type: 'REQUEST_ANALYSIS', requestId }),
+    },
+    {
+      attachedQuoteId: slottedQuote?.id,
+    },
+  );
+}
+
 // 심문 결과(진술·단계)가 새 증거·새 용의자를 여는지 평가하고 알린다.
 function runDiscovery(): void {
   const recordedClaims = new Set<string>();
@@ -894,6 +1052,7 @@ function runDiscovery(): void {
       appendMessage('hint', `새 용의자 — ${target.name}: ${unlock.notice}`);
     }
   }
+  synchronizeDossierFromCase();
   if (fired.length > 0) {
     renderEvidence();
     renderSuspectTabs();
@@ -906,6 +1065,7 @@ function switchSuspect(suspectId: string): void {
   activeSuspectId = suspectId;
   session();
   slottedEvidence = undefined;
+  slottedQuote = undefined;
   renderEvidenceSlot();
   renderSuspectCard();
   renderSuspectTabs();
@@ -1844,6 +2004,10 @@ function renderEvidenceView(view: EvidenceView): void {
 function openEvidence(evidence: Evidence): void {
   selectedEvidence = evidence;
   viewerTitle.textContent = evidence.name;
+  viewerPresent.textContent =
+    evidence.presentationMode === 'probe'
+      ? '이 정보로 떠보기'
+      : '이 증거 제시';
   viewerPresent.disabled =
     isWaiting ||
     isCaseEnded() ||
@@ -1867,6 +2031,7 @@ function handlePresentEvidence(evidence: Evidence): void {
     return;
   }
   slottedEvidence = slottedEvidence?.id === evidence.id ? undefined : evidence;
+  if (slottedEvidence) slottedQuote = undefined;
   renderEvidenceSlot();
   renderEvidence();
   questionInput.focus();
@@ -1874,32 +2039,54 @@ function handlePresentEvidence(evidence: Evidence): void {
 
 function renderEvidenceSlot(): void {
   evidenceSlot.replaceChildren();
-  if (!slottedEvidence) {
+  if (!slottedEvidence && !slottedQuote) {
     evidenceSlot.hidden = true;
     questionInput.placeholder = `${activeSuspect().name}에게 질문한다…`;
+    if (dossierDefinition && dossierState) {
+      dossierView?.update(dossierState, { attachedQuoteId: undefined });
+    }
     return;
   }
   evidenceSlot.hidden = false;
   const label = document.createElement('span');
-  label.textContent = `탁자 위 증거 — ${slottedEvidence.name}`;
+  if (slottedQuote) {
+    label.textContent = `문서 인용 — “${slottedQuote.text}”`;
+  } else if (slottedEvidence) {
+    label.textContent =
+      slottedEvidence.presentationMode === 'probe'
+        ? `비공개 떠보기 — ${slottedEvidence.name}`
+        : `탁자 위 증거 — ${slottedEvidence.name}`;
+  }
   const clear = document.createElement('button');
   clear.type = 'button';
   clear.className = 'slot-clear';
   clear.textContent = '×';
-  clear.setAttribute('aria-label', '증거 내리기');
+  clear.setAttribute('aria-label', '심문 자료 내리기');
   clear.addEventListener('click', () => {
     slottedEvidence = undefined;
+    slottedQuote = undefined;
     renderEvidenceSlot();
     renderEvidence();
   });
   evidenceSlot.append(label, clear);
-  questionInput.placeholder = `${slottedEvidence.name}을(를) 들이밀며 추궁한다…`;
+  questionInput.placeholder = slottedQuote
+    ? '인용한 문장을 짚으며 질문한다…'
+    : slottedEvidence?.presentationMode === 'probe'
+      ? '원문을 감춘 채 알고 있는 사실로 떠본다…'
+      : `${slottedEvidence?.name ?? '증거'}을(를) 들이밀며 추궁한다…`;
+  if (dossierDefinition && dossierState) {
+    dossierView?.update(dossierState, {
+      attachedQuoteId: slottedQuote?.id,
+    });
+  }
 }
 
 function renderEvidence(): void {
   evidenceList.replaceChildren();
+  let evidenceCount = 0;
   for (const evidence of activeCase.evidences) {
     if (!acquiredEvidenceIds.has(evidence.id)) continue;
+    evidenceCount += 1;
     const card = document.createElement('article');
     card.className = 'evidence-card';
 
@@ -1926,8 +2113,12 @@ function renderEvidence(): void {
       slottedEvidence?.id === evidence.id
         ? '내려놓기'
         : session().presentedEvidenceIds.includes(evidence.id)
-          ? '다시 제시'
-          : '제시';
+          ? evidence.presentationMode === 'probe'
+            ? '다시 떠보기'
+            : '다시 제시'
+          : evidence.presentationMode === 'probe'
+            ? '떠보기'
+            : '제시';
     if (slottedEvidence?.id === evidence.id) {
       presentButton.classList.add('slotted');
     }
@@ -1955,6 +2146,18 @@ function renderEvidence(): void {
 
     card.append(title, description, actions);
     evidenceList.append(card);
+  }
+  if (evidenceCount === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'evidence-empty';
+    const title = document.createElement('strong');
+    title.textContent = '아직 객관 증거가 없습니다.';
+    const note = document.createElement('p');
+    note.textContent = dossierDefinition
+      ? '사건 서류의 기록을 읽고 필요한 감식과 조회를 의뢰하세요.'
+      : '심문과 현장 조사에서 새 증거를 확보하세요.';
+    empty.append(title, note);
+    evidenceList.append(empty);
   }
 }
 
@@ -2517,6 +2720,10 @@ reportButton.addEventListener('click', () => {
 });
 
 phaseToggleButton.addEventListener('click', () => switchPhase());
+dossierButton.addEventListener('click', openDossier);
+dossierDialog.addEventListener('click', (event) => {
+  if (event.target === dossierDialog) dossierDialog.close();
+});
 sceneAudioButton.addEventListener('click', () => {
   sceneAudioEnabled = !sceneAudioEnabled;
   sceneAudioButton.setAttribute('aria-pressed', String(sceneAudioEnabled));
@@ -2588,7 +2795,8 @@ questionForm.addEventListener('submit', async (event) => {
   if (
     experience &&
     selectedTopicState?.exhausted &&
-    !slottedEvidence
+    !slottedEvidence &&
+    !slottedQuote
   ) {
     appendMessage(
       'hint',
@@ -2601,14 +2809,36 @@ questionForm.addEventListener('submit', async (event) => {
     (entry) => entry !== question,
   );
   const confrontEvidence = slottedEvidence;
+  const quotedDossier = slottedQuote;
+  const quoteOutcome =
+    dossierDefinition && dossierState && quotedDossier
+      ? resolveDossierQuote(
+          dossierDefinition,
+          dossierState,
+          activeSuspectId,
+          quotedDossier.id,
+        )
+      : undefined;
   slottedEvidence = undefined;
+  slottedQuote = undefined;
   renderEvidenceSlot();
 
   if (confrontEvidence) {
-    appendMessage('system', `증거 제시 — ${confrontEvidence.name}`);
+    appendMessage(
+      'system',
+      confrontEvidence.presentationMode === 'probe'
+        ? `비공개 떠보기 — ${confrontEvidence.name}`
+        : `증거 제시 — ${confrontEvidence.name}`,
+    );
     if (!active.presentedEvidenceIds.includes(confrontEvidence.id)) {
       active.presentedEvidenceIds.push(confrontEvidence.id);
     }
+  }
+  if (quoteOutcome?.valid && quoteOutcome.quote) {
+    appendMessage(
+      'system',
+      `문서 인용 — “${quoteOutcome.quote.text}”`,
+    );
   }
   if (experience && selectedTopic && selectedTactic) {
     appendMessage(
@@ -2617,7 +2847,11 @@ questionForm.addEventListener('submit', async (event) => {
     );
   }
   appendMessage('detective', question);
-  active.history.push({ role: 'user', content: question });
+  const modelQuestion =
+    quoteOutcome?.valid && quoteOutcome.quote
+      ? `[문서 인용: “${quoteOutcome.quote.text}”]\n${question}`
+      : question;
+  active.history.push({ role: 'user', content: modelQuestion });
   questionInput.value = '';
   isWaiting = true;
   renderStatus();
@@ -2628,7 +2862,7 @@ questionForm.addEventListener('submit', async (event) => {
 
   // 계약 전환과 심리 판정을 모두 먼저 계산한다. 저작된 특수 사건이 있으면
   // 일반 계약 앵커나 LLM보다 우선한다.
-  let contractReaction: string | undefined;
+  let contractReaction = quoteOutcome?.reactionLine;
   let confrontationImpact: PsychologyProgressResult['impact'] | undefined;
   if (confrontEvidence) {
     const outcome = applyEvidencePresentation(
@@ -2695,26 +2929,27 @@ questionForm.addEventListener('submit', async (event) => {
       }
     }
 
-    if (contractReaction) {
-      if (replyingToCounterQuestion) {
-        active.pendingCounterQuestion = undefined;
-      }
-      gameState = recordCompletedTurn(gameState);
-      const bubble = appendMessage('suspect', '', false);
-      bubble.classList.add('streaming');
-      active.history.push({ role: 'assistant', content: contractReaction });
-      active.messages.push({ kind: 'suspect', content: contractReaction });
-      renderStatements();
-      runDiscovery();
-      lastLatencyMs = performance.now() - startedAt;
-      isWaiting = false;
-      renderStatus();
-      renderEvidence();
-      renderSuspectTabs();
-      revealSuspectAnswer(bubble, contractReaction);
-      questionInput.focus();
-      return;
+  }
+
+  if (contractReaction) {
+    if (replyingToCounterQuestion) {
+      active.pendingCounterQuestion = undefined;
     }
+    gameState = recordCompletedTurn(gameState);
+    const bubble = appendMessage('suspect', '', false);
+    bubble.classList.add('streaming');
+    active.history.push({ role: 'assistant', content: contractReaction });
+    active.messages.push({ kind: 'suspect', content: contractReaction });
+    renderStatements();
+    runDiscovery();
+    lastLatencyMs = performance.now() - startedAt;
+    isWaiting = false;
+    renderStatus();
+    renderEvidence();
+    renderSuspectTabs();
+    revealSuspectAnswer(bubble, contractReaction);
+    questionInput.focus();
+    return;
   }
 
   const responseBubble = appendMessage('suspect', '', false);
@@ -2733,9 +2968,11 @@ questionForm.addEventListener('submit', async (event) => {
         role: current.role,
         persona: current.persona,
       },
-      question,
+      question: modelQuestion,
       recentTurns: active.history.slice(-6, -1),
-      presentedEvidence: confrontEvidence
+      presentedEvidence:
+        confrontEvidence &&
+        confrontEvidence.presentationMode !== 'probe'
         ? {
             id: confrontEvidence.id,
             name: confrontEvidence.name,
@@ -2751,16 +2988,34 @@ questionForm.addEventListener('submit', async (event) => {
               tacticLabel: selectedTactic.label,
               tacticInstruction: selectedTactic.responseInstruction,
               preferredClaimIds: selectedTopic.focusClaimIds,
-              forceClaimIds: forcedDialogueClaimIds(
-                active,
-                selectedTopicId,
-              ),
+              forceClaimIds: [
+                ...new Set([
+                  ...forcedDialogueClaimIds(active, selectedTopicId),
+                  ...(quoteOutcome?.mappedClaimId
+                    ? [quoteOutcome.mappedClaimId]
+                    : []),
+                ]),
+              ],
               allowModelCounterQuestion: false,
               psychologyCue: active.dynamicsState
                 ? psychologyRead(active.dynamicsState)
                 : undefined,
             },
           }
+        : quoteOutcome?.mappedClaimId
+          ? {
+              interaction: {
+                topicLabel: '서면 진술 대조',
+                topicDescription:
+                  '플레이어가 용의자의 저작된 서면 진술을 정확히 인용했다.',
+                tacticLabel: '문서 인용',
+                tacticInstruction:
+                  '인용된 자신의 진술을 캐릭터로서 다시 확인한다.',
+                preferredClaimIds: [quoteOutcome.mappedClaimId],
+                forceClaimIds: [quoteOutcome.mappedClaimId],
+                allowModelCounterQuestion: false,
+              },
+            }
         : {}),
       onDiscard: (violations) => {
         guardRetryCount += 1;
@@ -2984,6 +3239,7 @@ window.addEventListener(
   () => {
     sceneStageDisposed = true;
     sceneStage?.destroy();
+    dossierView?.destroy();
   },
   { once: true },
 );
@@ -2995,3 +3251,6 @@ applyPhaseVisibility();
 renderEvidence();
 renderStatus();
 renderStatements();
+if (dossierDefinition?.openAtStart) {
+  window.requestAnimationFrame(openDossier);
+}

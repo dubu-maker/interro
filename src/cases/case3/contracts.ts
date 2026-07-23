@@ -35,6 +35,7 @@ export const jangMiraeContract: CaseContract = {
   language: 'ko',
   starterQuestions: [
     '사고 직전 조정실에서 어떤 큐를 진행했습니까?',
+    '현장 큐시트에서 평소와 다른 수정 표시를 본 적이 있습니까?',
     '승강기 경고음은 정상적으로 작동했습니까?',
     '승강기 바닥을 내리려면 어떤 절차가 필요합니까?',
   ],
@@ -48,9 +49,10 @@ export const jangMiraeContract: CaseContract = {
     {
       id: 'M_COVER',
       strategy:
-        '사고 책임이 자신에게 돌아올까 두려워한다. 리허설 큐는 정상이었고 승강기 센서가 오작동했다고 짧게 주장한다.',
+        '사고 책임이 자신에게 돌아올까 두려워한다. 리허설 큐는 정상이었고 승강기 센서가 오작동했다고 짧게 주장한다. 큐시트에 수정 표시가 있었느냐고 정확히 물으면 표시 자체는 봤지만 승인된 수정으로 알았다고만 답한다.',
       allowedClaimIds: [
         'M_CUE_NORMAL',
+        'M_CUE_MARK_EXISTED',
         'M_IN_CONTROL_ROOM',
         'M_SENSOR_FAULT',
         'M_DID_NOT_OPEN_LIFT',
@@ -145,6 +147,12 @@ export const jangMiraeContract: CaseContract = {
       contradictedBy: ['E2'],
     },
     {
+      id: 'M_CUE_MARK_EXISTED',
+      meaning: '현장 큐시트에 수정 표시가 있었지만 승인된 변경으로 알고 그대로 진행했다고 진술한다.',
+      fallbackLine: '수정 표시는 봤습니다. 승인된 변경인 줄 알고 적힌 대로 진행했습니다.',
+      truth: 'true',
+    },
+    {
       id: 'M_IN_CONTROL_ROOM',
       meaning: '암전 전후 내내 조명 조정실에 있었다고 진술한다.',
       fallbackLine: '저는 암전 전후 내내 조정실에 있었습니다.',
@@ -236,6 +244,7 @@ export const yoonHaneulContract: CaseContract = {
   starterQuestions: [
     '사고 전 서혜진 감독과 마지막으로 대화한 게 언제입니까?',
     '왜 소극장 백야의 언더스터디에 지원했습니까?',
+    '극장 자료실에는 2014년 사고와 관련된 기록이 남아 있습니까?',
     '사고 당시 분장실에 있었다는 사실을 확인할 사람이 있습니까?',
   ],
   initialClaimIds: ['H_DRESSING_ROOM', 'H_NO_ARGUMENT'],
@@ -244,10 +253,11 @@ export const yoonHaneulContract: CaseContract = {
     {
       id: 'H_COVER',
       strategy:
-        '서혜진에게 적대감을 숨기지 않지만 지원 목적과 다툼은 부인한다. 사고 때는 분장실에 있었다고 짧게 답한다.',
+        '서혜진에게 적대감을 숨기지 않지만 지원 목적과 다툼은 부인한다. 사고 때는 분장실에 있었다고 짧게 답한다. 자료실 기록을 직접 물으면 과거 공연·사고 서류가 보관돼 있다는 사실만 인정하고 자신이 찾은 이유는 숨긴다.',
       allowedClaimIds: [
         'H_DRESSING_ROOM',
         'H_NO_ARGUMENT',
+        'H_ARCHIVE_MATERIAL',
         'H_RESENTED_HYEJIN',
         'H_DENY',
       ],
@@ -337,6 +347,12 @@ export const yoonHaneulContract: CaseContract = {
       fallbackLine: '그날 감독님과는 별다른 대화를 하지 않았습니다.',
       truth: 'false',
       contradictedBy: ['E4'],
+    },
+    {
+      id: 'H_ARCHIVE_MATERIAL',
+      meaning: '극장 자료실에 과거 공연과 사고에 관한 원본 서류가 보관돼 있다고 진술한다.',
+      fallbackLine: '자료실에 예전 공연 자료와 사고 관련 서류가 보관돼 있는 건 압니다.',
+      truth: 'true',
     },
     {
       id: 'H_RESENTED_HYEJIN',

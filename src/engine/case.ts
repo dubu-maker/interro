@@ -1,5 +1,6 @@
 import type { CaseContract } from './contract';
 import type { CourtDefinition } from './court';
+import type { DossierDefinition } from './dossier';
 import type { InterrogationExperienceDefinition } from './interrogationDynamics';
 import type { PsychologyTrialDefinition } from './psychologyTrial';
 import type { SceneDefinition } from './scene';
@@ -60,6 +61,9 @@ export interface CaseDefinition {
   // 1막 현장 수사. 있으면 현장에서 시작하고, 타살 입건에 성공해야
   // 심문(2막)이 열린다. 없으면 바로 심문에서 시작한다.
   scene?: SceneDefinition;
+  // 사건 서류철은 별도 막이 아니라 심문 중에도 계속 여는 상시 책상이다.
+  // 기본 사건은 dossier만, 공간 자체가 증거인 사건은 scene을 선택할 수 있다.
+  dossier?: DossierDefinition;
   // 심리·법정 특화 사건은 일반 심문 계약 위에 별도 결정론적 진행 규칙을 얹는다.
   psychologyTrial?: PsychologyTrialDefinition;
   // 자유 질문의 표현과 별개로 전술·주제·진술 강도를 판정하는 결정론적

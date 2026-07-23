@@ -35,6 +35,8 @@ export interface Evidence {
   name: string;
   description: string;
   view: EvidenceView;
+  // 비공개 수사 정보는 용의자에게 원문을 내밀지 않고 질문의 함정으로만 쓴다.
+  presentationMode?: 'presentable' | 'probe';
 }
 
 export interface Secret {
