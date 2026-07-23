@@ -2730,9 +2730,6 @@ reportButton.addEventListener('click', () => {
 
 phaseToggleButton.addEventListener('click', () => switchPhase());
 dossierButton.addEventListener('click', openDossier);
-dossierDialog.addEventListener('click', (event) => {
-  if (event.target === dossierDialog) dossierDialog.close();
-});
 sceneAudioButton.addEventListener('click', () => {
   sceneAudioEnabled = !sceneAudioEnabled;
   sceneAudioButton.setAttribute('aria-pressed', String(sceneAudioEnabled));

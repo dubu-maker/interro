@@ -1913,8 +1913,8 @@ h1 {
 }
 
 .dossier-dialog {
-  width: min(76rem, calc(100% - 2rem));
-  height: min(92dvh, 58rem);
+  width: min(82rem, calc(100% - 1.5rem));
+  height: min(96dvh, 62rem);
   max-width: none;
   max-height: none;
   padding: 0;
@@ -1954,7 +1954,7 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.25rem;
+  padding: 0.68rem 1.1rem;
   border-bottom: 1px solid #514638;
   background:
     linear-gradient(90deg, rgb(188 145 82 / 13%), transparent 52%),
@@ -1962,42 +1962,55 @@ h1 {
 }
 
 .dossier-header__copy {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: auto minmax(12rem, 0.85fr) minmax(20rem, 1.15fr);
+  align-items: center;
+  gap: 1rem;
   min-width: 0;
 }
 
 .dossier-eyebrow {
-  margin: 0 0 0.25rem;
+  margin: 0;
   color: #b8a27e;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .dossier-title {
   margin: 0;
   overflow: hidden;
   font-family: Georgia, "Noto Serif KR", serif;
-  font-size: clamp(1.15rem, 2.4vw, 1.7rem);
+  font-size: clamp(1.05rem, 1.8vw, 1.38rem);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dossier-official-theory {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  padding-left: 1rem;
+  border-left: 1px solid #514638;
   gap: 0.35rem 0.7rem;
-  margin: 0.45rem 0 0;
+  margin: 0;
   color: #c8c0b4;
   font-size: 0.76rem;
 }
 
 .dossier-official-theory span {
+  flex: 0 0 auto;
   color: #857c71;
 }
 
 .dossier-official-theory strong {
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dossier-close {
@@ -3036,6 +3049,28 @@ h1 {
   }
 }
 
+@media (max-width: 1050px) {
+  .dossier-header__copy {
+    grid-template-areas:
+      "eyebrow theory"
+      "title theory";
+    grid-template-columns: minmax(0, 0.85fr) minmax(17rem, 1.15fr);
+    gap: 0.08rem 0.85rem;
+  }
+
+  .dossier-eyebrow {
+    grid-area: eyebrow;
+  }
+
+  .dossier-title {
+    grid-area: title;
+  }
+
+  .dossier-official-theory {
+    grid-area: theory;
+  }
+}
+
 @media (max-width: 800px) {
   .dossier-dialog {
     width: 100%;
@@ -3046,7 +3081,15 @@ h1 {
   }
 
   .dossier-header {
-    padding: 0.75rem;
+    padding: 0.58rem 0.75rem;
+  }
+
+  .dossier-header__copy {
+    grid-template-areas:
+      "eyebrow"
+      "title";
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.08rem;
   }
 
   .dossier-title {
