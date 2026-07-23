@@ -16,6 +16,8 @@ export type EvidenceView =
     }
   | {
       type: 'document';
+      // 감정서 외에도 통화기록·CCTV 분석표 등 사건별 문서 제목을 쓸 수 있다.
+      title?: string;
       documentNumber: string;
       organization: string;
       fields: Array<{ label: string; value: string }>;

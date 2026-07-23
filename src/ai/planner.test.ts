@@ -71,10 +71,12 @@ describe('buildFallbackPlan', () => {
 
 describe('buildPlannerPrompt', () => {
   it('후보 ID와 방어 전략을 포함하고 JSON 출력을 지시한다', () => {
-    const prompt = buildPlannerPrompt(stage, candidates, []);
+    const prompt = buildPlannerPrompt(stage, candidates, [], 'ko', '김만철');
 
     expect(prompt).toContain('C_WENT_HOME');
     expect(prompt).toContain(stage.strategy);
+    expect(prompt).toContain('김만철');
+    expect(prompt).not.toContain('한세라');
     expect(prompt).toContain('JSON만 출력');
   });
 });

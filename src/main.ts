@@ -3,12 +3,8 @@ import { DesktopModelProvider } from './ai/desktopModelProvider';
 import { runSuspectTurn } from './ai/interrogationPipeline';
 import { OllamaProvider } from './ai/ollamaProvider';
 import type { ChatMessage } from './ai/types';
-import { case1 } from './cases/case1';
+import { case1, resolveCase } from './cases';
 import { case1SceneStageLayout } from './cases/case1/sceneStage';
-import {
-  prototypeCaseEn,
-  prototypeCaseKo,
-} from './cases/prototype';
 import {
   evaluateUnlocks,
   getSuspect,
@@ -20,6 +16,24 @@ import {
   type VerdictResult,
 } from './engine/verdict';
 import {
+  judgeCourt,
+  type CourtArgument,
+  type CourtVerdict,
+} from './engine/court';
+import {
+  canStartForensics,
+  commitForensicSelection,
+  createPsychologyTrialState,
+  enterCourt,
+  resolveConfrontation,
+  resolveFinale,
+  resolveProbe,
+  resolveStatementCommitments,
+  toggleForensicOption,
+  type PsychologyProgressResult,
+  type PsychologyTrialState,
+} from './engine/psychologyTrial';
+import {
   availableSpots,
   createSceneProgress,
   examineSceneSpot,
@@ -29,9 +43,9 @@ import {
 } from './engine/scene';
 import {
   applyEvidencePresentation,
+  commitStatements,
   createContractState,
   getClaim,
-  recordStatements,
   selectHint,
   type ContractState,
 } from './engine/contract';
@@ -68,15 +82,13 @@ const modelFieldLabel = isOpenAiDesktop
     : 'Ollama 모델';
 const sessionLabel = isOpenAiDesktop ? 'OpenAI API 세션' : '로컬 세션';
 
-// 사건 선택: ?case=case1 → 사건 1 (영어 저작), 그 외에는 프로토타입
-// (?lang=en 이면 영어 프로토타입).
+// 사건 선택: ?case=case1 또는 ?case=case2. 지정하지 않으면 언어별
+// 기술 프로토타입으로 돌아간다.
 const urlParams = new URLSearchParams(window.location.search);
-const activeCase =
-  urlParams.get('case') === 'case1'
-    ? case1
-    : urlParams.get('lang') === 'en'
-      ? prototypeCaseEn
-      : prototypeCaseKo;
+const activeCase = resolveCase(
+  urlParams.get('case'),
+  urlParams.get('lang') === 'en' ? 'en' : 'ko',
+);
 
 const sceneStageLayout: SceneStageLayout =
   activeCase.id === case1.id
@@ -102,6 +114,7 @@ interface SuspectSession {
   presentedEvidenceIds: string[];
   stalledTurns: number;
   shownHintIds: string[];
+  followUpQuestions: string[];
   lastCounterQuestion: boolean;
 }
 
@@ -123,6 +136,7 @@ function session(): SuspectSession {
       presentedEvidenceIds: [],
       stalledTurns: 0,
       shownHintIds: [],
+      followUpQuestions: [],
       lastCounterQuestion: false,
     };
     sessions.set(activeSuspectId, entry);
@@ -137,6 +151,14 @@ const acquiredEvidenceIds = new Set<string>(activeCase.initialEvidenceIds);
 const unlockedSuspectIds = new Set<string>(activeCase.initialSuspectIds);
 // 판정이 내려지면 심문은 종료된다.
 let verdict: VerdictResult | undefined;
+const psychologyDefinition = activeCase.psychologyTrial;
+let psychologyState: PsychologyTrialState | undefined = psychologyDefinition
+  ? createPsychologyTrialState(psychologyDefinition)
+  : undefined;
+let courtVerdict: CourtVerdict | undefined;
+let courtCandidateId = '';
+let courtChargeId = '';
+const courtArgumentSelections = new Map<string, string>();
 // 플레이어가 용의선상에서 제외한 인물.
 const releasedSuspectIds = new Set<string>();
 // 최종 보고서에서 고른 값.
@@ -158,7 +180,11 @@ let sceneRulingChoice: DeathRulingChoice | '' = '';
 const sceneRulingEvidenceIds = new Set<string>();
 
 function isCaseEnded(): boolean {
-  return verdict !== undefined || sceneEnd !== undefined;
+  return (
+    verdict !== undefined ||
+    sceneEnd !== undefined ||
+    courtVerdict !== undefined
+  );
 }
 let parkingPlaybackTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -232,6 +258,16 @@ app.innerHTML = `
           </div>
         </div>
 
+        <section id="psychology-progress" class="psychology-progress" aria-live="polite" aria-label="심리 공방 진행" hidden>
+          <div>
+            <p class="eyebrow">심리 공방</p>
+            <strong id="psychology-stage"></strong>
+            <p id="psychology-cue" class="psychology-cue"></p>
+          </div>
+          <div id="contradiction-list" class="contradiction-list"></div>
+          <button id="psychology-action" type="button"></button>
+        </section>
+
         <div id="chat-log" class="chat-log" aria-live="polite"></div>
 
         <div id="evidence-slot" class="evidence-slot" hidden></div>
@@ -243,7 +279,7 @@ app.innerHTML = `
             id="question-input"
             rows="2"
             maxlength="500"
-            placeholder="한세라에게 질문한다…"
+            placeholder="용의자에게 질문한다…"
             required
           ></textarea>
           <button id="send-button" type="submit">질문</button>
@@ -268,7 +304,7 @@ app.innerHTML = `
       </aside>
     </div>
 
-    <dialog id="evidence-dialog" class="evidence-dialog">
+    <dialog id="evidence-dialog" class="evidence-dialog" aria-labelledby="viewer-title">
       <div class="evidence-viewer">
         <header class="viewer-header">
           <div>
@@ -285,12 +321,45 @@ app.innerHTML = `
       </div>
     </dialog>
 
-    <dialog id="report-dialog" class="evidence-dialog">
+    <dialog id="forensic-dialog" class="evidence-dialog" aria-labelledby="forensic-title">
+      <div class="evidence-viewer">
+        <header class="viewer-header">
+          <div>
+            <p class="eyebrow">감식 인터미션</p>
+            <h2 id="forensic-title">의뢰할 감식 ${psychologyDefinition?.forensicSelectionCount ?? 3}개를 고르세요</h2>
+          </div>
+          <button id="forensic-close" class="viewer-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <div id="forensic-content" class="viewer-content"></div>
+        <footer class="viewer-footer">
+          <span id="forensic-note">선택하지 않은 감식 결과는 이번 플레이에서 얻을 수 없습니다.</span>
+          <button id="forensic-submit" type="button">감식 의뢰 확정</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="finale-dialog" class="evidence-dialog" aria-labelledby="finale-title">
+      <div class="evidence-viewer">
+        <header class="viewer-header">
+          <div>
+            <p class="eyebrow">심문 피날레</p>
+            <h2 id="finale-title">마지막 한마디</h2>
+          </div>
+          <button id="finale-close" class="viewer-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <div id="finale-content" class="viewer-content"></div>
+        <footer class="viewer-footer">
+          <span>이 선택은 증거가 아니라, 법정에 이르는 사람의 태도를 바꿉니다.</span>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="report-dialog" class="evidence-dialog" aria-labelledby="report-title">
       <div class="evidence-viewer report-viewer">
         <header class="viewer-header">
           <div>
-            <p class="eyebrow">최종 수사 보고서</p>
-            <h2>사건을 종결합니다</h2>
+            <p id="report-eyebrow" class="eyebrow">최종 수사 보고서</p>
+            <h2 id="report-title">사건을 종결합니다</h2>
           </div>
           <button id="report-close" class="viewer-close" type="button" aria-label="닫기">×</button>
         </header>
@@ -323,6 +392,11 @@ const suspectName = getElement<HTMLHeadingElement>('suspect-name');
 const suspectRole = getElement<HTMLParagraphElement>('suspect-role');
 const releaseButton = getElement<HTMLButtonElement>('release-button');
 const indictButton = getElement<HTMLButtonElement>('indict-button');
+const psychologyProgress = getElement<HTMLElement>('psychology-progress');
+const psychologyStage = getElement<HTMLElement>('psychology-stage');
+const psychologyCue = getElement<HTMLParagraphElement>('psychology-cue');
+const contradictionList = getElement<HTMLDivElement>('contradiction-list');
+const psychologyAction = getElement<HTMLButtonElement>('psychology-action');
 const evidenceList = getElement<HTMLDivElement>('evidence-list');
 const starterQuestionsBox = getElement<HTMLDivElement>('starter-questions');
 const evidenceSlot = getElement<HTMLDivElement>('evidence-slot');
@@ -342,6 +416,16 @@ const reportContent = getElement<HTMLDivElement>('report-content');
 const reportSubmit = getElement<HTMLButtonElement>('report-submit');
 const reportClose = getElement<HTMLButtonElement>('report-close');
 const reportNote = getElement<HTMLSpanElement>('report-note');
+const reportEyebrow = getElement<HTMLParagraphElement>('report-eyebrow');
+const reportTitle = getElement<HTMLHeadingElement>('report-title');
+const forensicDialog = getElement<HTMLDialogElement>('forensic-dialog');
+const forensicContent = getElement<HTMLDivElement>('forensic-content');
+const forensicSubmit = getElement<HTMLButtonElement>('forensic-submit');
+const forensicClose = getElement<HTMLButtonElement>('forensic-close');
+const forensicNote = getElement<HTMLSpanElement>('forensic-note');
+const finaleDialog = getElement<HTMLDialogElement>('finale-dialog');
+const finaleContent = getElement<HTMLDivElement>('finale-content');
+const finaleClose = getElement<HTMLButtonElement>('finale-close');
 const evidenceDialog = getElement<HTMLDialogElement>('evidence-dialog');
 const viewerTitle = getElement<HTMLHeadingElement>('viewer-title');
 const viewerContent = getElement<HTMLDivElement>('viewer-content');
@@ -438,15 +522,22 @@ function renderSuspectCard(): void {
 
   // 용의선상 제외: 남은 턴을 아끼는 대신, 진범을 놓아주면 그대로 패배한다.
   releaseButton.hidden =
-    activeCase.motiveOptions.length === 0 || isCaseEnded();
+    activeCase.court !== undefined ||
+    activeCase.motiveOptions.length === 0 ||
+    isCaseEnded();
   releaseButton.disabled =
     isWaiting || releasedSuspectIds.has(current.id) || isCaseEnded();
   releaseButton.textContent = releasedSuspectIds.has(current.id)
     ? '제외됨'
     : '용의선상 제외';
   // 재판 회부: 이 사람을 범인으로 고정하고 기소한다.
-  indictButton.hidden = releaseButton.hidden;
-  indictButton.disabled = isWaiting || isCaseEnded();
+  indictButton.hidden = activeCase.court ? isCaseEnded() : releaseButton.hidden;
+  indictButton.disabled =
+    isWaiting ||
+    isCaseEnded() ||
+    (activeCase.court !== undefined &&
+      psychologyState?.phase === 'SESSION_ONE');
+  indictButton.textContent = activeCase.court ? '공판 논증' : '재판에 넘긴다';
 }
 
 function renderSuspectTabs(): void {
@@ -551,6 +642,7 @@ function applyPhaseVisibility(): void {
   if (inScene) suspectTabs.hidden = true;
   const interrogationBlocks = [
     document.querySelector('.suspect-card'),
+    psychologyProgress,
     chatLog,
     evidenceSlot,
     starterQuestionsBox,
@@ -579,11 +671,14 @@ function switchPhase(): void {
   if (phase === 'interrogation') {
     renderSuspectTabs();
     renderSuspectCard();
+    renderPsychologyProgress();
   }
 }
 
 // 현장 판단 폼: 사고사·자살·타살 + 근거 증거.
 function renderSceneRulingForm(): void {
+  reportEyebrow.textContent = '현장 판단';
+  reportTitle.textContent = '이 죽음을 분류합니다';
   reportContent.replaceChildren();
   reportSubmit.hidden = false;
   reportSubmit.textContent = '판단 제출';
@@ -633,6 +728,8 @@ function sceneRulingReady(): boolean {
 
 function renderSceneEnd(): void {
   if (!sceneEnd) return;
+  reportEyebrow.textContent = '현장 판단 결과';
+  reportTitle.textContent = sceneEnd.title;
   reportContent.replaceChildren();
   reportSubmit.hidden = true;
   reportNote.textContent = '';
@@ -766,16 +863,22 @@ function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
 // 직접 질문을 쓰는 기본 조작을 가르치기 위해서다.
 function renderStarterQuestions(): void {
   starterQuestionsBox.replaceChildren();
-  if (session().history.length > 0) {
+  const active = session();
+  const questions =
+    active.history.length === 0
+      ? activeSuspect().contract.starterQuestions
+      : active.followUpQuestions;
+  if (questions.length === 0) {
     starterQuestionsBox.hidden = true;
     return;
   }
   starterQuestionsBox.hidden = false;
-  for (const question of activeSuspect().contract.starterQuestions) {
+  for (const question of questions) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'starter-chip';
-    chip.textContent = question;
+    chip.textContent =
+      active.history.length === 0 ? question : `번복 추궁 · ${question}`;
     chip.addEventListener('click', () => {
       questionInput.value = question;
       questionInput.focus();
@@ -784,14 +887,337 @@ function renderStarterQuestions(): void {
   }
 }
 
+const psychologyStageCopy: Readonly<
+  Record<string, { label: string; cue: string }>
+> = {
+  ST_CONFESSION: {
+    label: '완성된 자백',
+    cue: '준비한 문장을 흔들림 없이 되풀이한다.',
+  },
+  ST_PATCH: {
+    label: '임시 해명',
+    cue: '객관 기록마다 짧은 설명을 덧대기 시작한다.',
+  },
+  ST_RIGID: {
+    label: '완강한 침묵',
+    cue: '답이 짧아지고, 기록보다 자백을 믿어 달라고 한다.',
+  },
+  ST_DILEMMA: {
+    label: '보호자의 딜레마',
+    cue: '자백을 지키려면 자신의 삶까지 부정해야 한다.',
+  },
+  ST_COLLAPSE: {
+    label: '자백의 붕괴',
+    cue: '운전자가 아니라는 사실은 인정하면서도 이름은 말하지 않는다.',
+  },
+  ST_SINCERE: {
+    label: '진심',
+    cue: '처벌을 대신 받는 것보다 진실을 말할 준비를 한다.',
+  },
+};
+
+function renderPsychologyProgress(): void {
+  const definition = psychologyDefinition;
+  const state = psychologyState;
+  if (!definition || !state || phase === 'scene') {
+    psychologyProgress.hidden = true;
+    return;
+  }
+
+  psychologyProgress.hidden = false;
+  const stageCopy = psychologyStageCopy[state.stageId];
+  psychologyStage.textContent = stageCopy?.label ?? state.stageId;
+  psychologyCue.textContent = stageCopy?.cue ?? '상대의 반응을 관찰한다.';
+
+  contradictionList.replaceChildren();
+  if (
+    state.confirmedContradictionIds.length === 0 &&
+    state.lockedContradictionIds.length === 0
+  ) {
+    const empty = document.createElement('span');
+    empty.className = 'contradiction-chip empty';
+    empty.textContent = '확정 모순 0';
+    contradictionList.append(empty);
+  }
+  for (const contradictionId of state.lockedContradictionIds) {
+    const rule = definition.contradictions.find(
+      (entry) => entry.id === contradictionId,
+    );
+    const chip = document.createElement('span');
+    chip.className = 'contradiction-chip locked';
+    chip.textContent = `${contradictionId} · 열쇠 미확보`;
+    chip.title = rule?.label ?? '검증 가능한 진술이 고착됨';
+    contradictionList.append(chip);
+  }
+  for (const contradictionId of state.confirmedContradictionIds) {
+    const rule = definition.contradictions.find(
+      (entry) => entry.id === contradictionId,
+    );
+    const chip = document.createElement('span');
+    chip.className = `contradiction-chip ${rule?.kind.toLocaleLowerCase() ?? ''}`;
+    chip.textContent = `${contradictionId} · ${rule?.label ?? '확정 모순'}`;
+    contradictionList.append(chip);
+  }
+
+  psychologyAction.hidden = false;
+  psychologyAction.disabled = isWaiting || isCaseEnded();
+  if (state.phase === 'SESSION_ONE') {
+    const ready = canStartForensics(definition, state, gameState.turn);
+    psychologyAction.disabled ||= !ready;
+    psychologyAction.textContent = ready
+      ? `감식 ${definition.forensicSelectionCount}개 의뢰`
+      : `심문 ${definition.minimumTurnsBeforeForensics}턴 후 감식`;
+  } else if (state.phase === 'SESSION_TWO') {
+    psychologyAction.textContent = '수사를 마치고 공판으로';
+  } else if (state.phase === 'FINALE') {
+    psychologyAction.textContent = '마지막 응답 선택';
+  } else {
+    psychologyAction.textContent = '공판 논증 열기';
+  }
+}
+
+function applyPsychologyProgress(result: PsychologyProgressResult): void {
+  if (!psychologyDefinition) return;
+  const previousStageId = psychologyState?.stageId;
+  psychologyState = result.state;
+
+  const active = session();
+  active.contractState = {
+    ...active.contractState,
+    stageId: result.state.stageId,
+  };
+
+  for (const contradictionId of result.newlyLockedContradictionIds) {
+    const rule = psychologyDefinition.contradictions.find(
+      (entry) => entry.id === contradictionId,
+    );
+    const notice =
+      rule?.commitment?.notice ??
+      '검증 가능한 진술을 확보했지만 확정할 물증이 아직 없다.';
+    appendMessage(
+      'hint',
+      `진술 고착 — ${contradictionId} · 열쇠 미확보\n${notice}`,
+    );
+  }
+  if (result.specialEvent) {
+    unlockedNotices.push(result.specialEvent.notice);
+    appendMessage('system', `특수 전환 — ${result.specialEvent.notice}`);
+  }
+
+  for (const evidenceId of result.unlockedEvidenceIds) {
+    const wasAcquired = acquiredEvidenceIds.has(evidenceId);
+    acquiredEvidenceIds.add(evidenceId);
+    const evidence = activeCase.evidences.find((entry) => entry.id === evidenceId);
+    if (!wasAcquired) {
+      const automatic = result.automaticEvidenceIds.includes(evidenceId);
+      const notice = automatic
+        ? `후속 영장 집행 — ${evidence?.name ?? evidenceId}`
+        : `논증 확정 — ${evidence?.name ?? evidenceId}`;
+      unlockedNotices.push(notice);
+      appendMessage('hint', notice);
+    }
+
+    // 확정 모순 카드도 계약에 다시 제시해 기존 자백 문장을 모순 처리한다.
+    active.contractState = applyEvidencePresentation(
+      activeSuspect().contract,
+      active.contractState,
+      evidenceId,
+    ).state;
+  }
+
+  if (previousStageId !== result.state.stageId) {
+    const stage = psychologyStageCopy[result.state.stageId];
+    appendMessage(
+      'system',
+      `심리 단계 변화 — ${stage?.label ?? result.state.stageId}`,
+    );
+  }
+  renderStatements();
+  renderEvidence();
+  renderPsychologyProgress();
+}
+
+function renderForensicDialog(): void {
+  const definition = psychologyDefinition;
+  const state = psychologyState;
+  if (!definition || !state || state.phase !== 'SESSION_ONE') return;
+  forensicContent.replaceChildren();
+
+  const selected = new Set(state.selectedForensicOptionIds);
+  const atLimit = selected.size >= definition.forensicSelectionCount;
+  const counter = document.createElement('p');
+  counter.className = 'forensic-counter';
+  counter.textContent = `${selected.size} / ${definition.forensicSelectionCount} 선택`;
+  const grid = document.createElement('div');
+  grid.className = 'forensic-grid';
+
+  for (const option of definition.forensicOptions) {
+    const row = document.createElement('label');
+    row.className = `forensic-option${selected.has(option.id) ? ' selected' : ''}`;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = selected.has(option.id);
+    input.disabled = atLimit && !selected.has(option.id);
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    name.textContent = option.label;
+    const kind = document.createElement('span');
+    kind.className = `forensic-kind ${option.resolution.toLocaleLowerCase()}`;
+    kind.textContent =
+      option.resolution === 'DIRECT'
+        ? '단독 확정'
+        : option.resolution === 'COMBINATION'
+          ? '조합 확정'
+          : '보조 정황';
+    const description = document.createElement('small');
+    description.textContent = option.description;
+    const target = document.createElement('small');
+    target.className = 'forensic-impact';
+    const targetRule = definition.contradictions.find(
+      (entry) => entry.id === option.targetContradictionId,
+    );
+    target.textContent = option.targetContradictionId
+      ? `목표 · ${option.targetContradictionId} ${targetRule?.label ?? ''}`
+      : '목표 · 즉시 확정 없음';
+    const requirement = document.createElement('small');
+    requirement.className = 'forensic-requirement';
+    const requiredNames = option.requiredEvidenceIds.map(
+      (evidenceId) =>
+        activeCase.evidences.find((entry) => entry.id === evidenceId)?.name ??
+        evidenceId,
+    );
+    requirement.textContent =
+      requiredNames.length > 0
+        ? `필요 조합 · ${requiredNames.join(' + ')}`
+        : option.resolution === 'SUPPORT'
+          ? '확정 조건 · 단독 모순 없음'
+          : '필요 조합 · 기록된 진술';
+    const opportunityCost = document.createElement('small');
+    opportunityCost.className = 'forensic-cost';
+    opportunityCost.textContent = `선택 판단 · ${option.opportunityCost}`;
+    copy.append(
+      name,
+      kind,
+      description,
+      target,
+      requirement,
+      opportunityCost,
+    );
+    input.addEventListener('change', () => {
+      if (!psychologyState) return;
+      psychologyState = toggleForensicOption(
+        definition,
+        psychologyState,
+        option.id,
+      );
+      renderForensicDialog();
+      renderPsychologyProgress();
+    });
+    row.append(input, copy);
+    grid.append(row);
+  }
+
+  forensicContent.append(counter, grid);
+  forensicSubmit.disabled =
+    selected.size !== definition.forensicSelectionCount;
+  forensicNote.textContent = atLimit
+    ? '선택 완료. 확정하면 심문 2회차가 시작됩니다.'
+    : `앞으로 ${definition.forensicSelectionCount - selected.size}개를 더 고르세요.`;
+}
+
+function openForensicDialog(): void {
+  const definition = psychologyDefinition;
+  const state = psychologyState;
+  if (
+    !definition ||
+    !state ||
+    !canStartForensics(definition, state, gameState.turn)
+  ) {
+    return;
+  }
+  renderForensicDialog();
+  forensicDialog.showModal();
+}
+
+function commitForensics(): void {
+  const definition = psychologyDefinition;
+  if (!definition || !psychologyState) return;
+  const result = commitForensicSelection(
+    definition,
+    psychologyState,
+    gameState.turn,
+  );
+  psychologyState = result.state;
+  const names: string[] = [];
+  for (const evidenceId of result.evidenceIds) {
+    acquiredEvidenceIds.add(evidenceId);
+    names.push(
+      activeCase.evidences.find((entry) => entry.id === evidenceId)?.name ??
+        evidenceId,
+    );
+  }
+  appendMessage('system', `감식 결과 도착 — ${names.join(' · ')}`);
+  forensicDialog.close();
+  renderEvidence();
+  renderStatus();
+}
+
+function renderFinaleDialog(): void {
+  const definition = psychologyDefinition;
+  const state = psychologyState;
+  if (!definition || !state || state.phase !== 'FINALE') return;
+  finaleContent.replaceChildren();
+  const anchor = document.createElement('blockquote');
+  anchor.className = 'finale-anchor';
+  anchor.textContent = definition.finaleAnchorLine;
+  const choices = document.createElement('div');
+  choices.className = 'finale-choices';
+  for (const choice of definition.finaleChoices) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = choice.label;
+    button.addEventListener('click', () => {
+      if (!psychologyState) return;
+      const resolution = resolveFinale(definition, psychologyState, choice.id);
+      psychologyState = resolution.state;
+      session().contractState = {
+        ...session().contractState,
+        stageId: resolution.state.stageId,
+      };
+      appendMessage('system', `마지막 선택 — ${choice.label}`);
+      appendMessage('suspect', resolution.responseLine);
+      session().history.push({
+        role: 'assistant',
+        content: resolution.responseLine,
+      });
+      finaleDialog.close();
+      renderPsychologyProgress();
+      renderStatus();
+      openCourtBoard();
+    });
+    choices.append(button);
+  }
+  finaleContent.append(anchor, choices);
+}
+
+function openFinaleDialog(): void {
+  if (psychologyState?.phase !== 'FINALE') return;
+  renderFinaleDialog();
+  finaleDialog.showModal();
+}
+
 function renderStatus(): void {
   renderStarterQuestions();
+  renderPsychologyProgress();
   sceneStage?.setBusy(isWaiting);
   turnStatus.textContent =
     phase === 'scene'
       ? '현장 수사'
       : `심문 ${gameState.turn} / ${gameState.maxTurns}${isOvertime(gameState) ? ' · 초과 수사' : ''}`;
-  const locked = isWaiting || isCaseEnded();
+  const psychologyLocked =
+    psychologyState?.phase === 'FINALE' ||
+    psychologyState?.phase === 'COURT';
+  const locked = isWaiting || isCaseEnded() || psychologyLocked;
   questionInput.disabled = locked || !canAskQuestion(gameState);
   sendButton.disabled = locked || !canAskQuestion(gameState);
   modelInput.disabled = locked;
@@ -803,12 +1229,24 @@ function renderStatus(): void {
       : '질문';
   // 정답 판정이 있는 사건에서만 종결 버튼을 노출한다.
   reportButton.hidden =
-    activeCase.motiveOptions.length === 0 && !activeCase.scene;
+    activeCase.court === undefined &&
+    activeCase.motiveOptions.length === 0 &&
+    !activeCase.scene;
+  reportButton.disabled =
+    isWaiting ||
+    (activeCase.court !== undefined &&
+      psychologyState?.phase === 'SESSION_ONE');
   reportButton.textContent = isCaseEnded()
-    ? '수사 결과'
+    ? activeCase.court
+      ? '판결 결과'
+      : '수사 결과'
     : phase === 'scene'
       ? '현장 판단'
-      : '사건 종결';
+      : activeCase.court
+        ? psychologyState?.phase === 'FINALE'
+          ? '마지막 응답'
+          : '공판 준비'
+        : '사건 종결';
   phaseToggleButton.hidden = !activeCase.scene || !caseOpened || isCaseEnded();
   sessionMetrics.textContent = lastLatencyMs
     ? `${(lastLatencyMs / 1000).toFixed(1)}초 · 입력 ${totalInputTokens.toLocaleString()} · 출력 ${totalOutputTokens.toLocaleString()} 토큰${guardRetryCount > 0 ? ` · 정정 ${guardRetryCount}` : ''}`
@@ -846,6 +1284,9 @@ function renderStatements(): void {
     if (statement.status === 'CONTRADICTED') {
       item.classList.add('contradicted');
       item.textContent += ' (모순)';
+    } else if (statement.status === 'REVISED') {
+      item.classList.add('revised');
+      item.textContent += ' (번복됨)';
     }
     statementsList.append(item);
   }
@@ -949,7 +1390,7 @@ function renderEvidenceView(view: EvidenceView): void {
       .join('');
     viewerContent.innerHTML = `
       <article class="forensic-report">
-        <div class="report-mark">법의학 감정서</div>
+        <div class="report-mark">${view.title ?? '법의학 감정서'}</div>
         <p class="report-organization">${view.organization}</p>
         <p class="report-number">문서번호 ${view.documentNumber}</p>
         <dl>${fields}</dl>
@@ -978,7 +1419,12 @@ function renderEvidenceView(view: EvidenceView): void {
 function openEvidence(evidence: Evidence): void {
   selectedEvidence = evidence;
   viewerTitle.textContent = evidence.name;
-  viewerPresent.disabled = isWaiting;
+  viewerPresent.disabled =
+    isWaiting ||
+    isCaseEnded() ||
+    phase === 'scene' ||
+    psychologyState?.phase === 'FINALE' ||
+    psychologyState?.phase === 'COURT';
   renderEvidenceView(evidence.view);
   evidenceDialog.showModal();
 }
@@ -986,7 +1432,15 @@ function openEvidence(evidence: Evidence): void {
 // 증거를 탁자에 올린다. 전환·반응은 일어나지 않는다 — 플레이어가 직접
 // 추궁 문장을 보내는 순간 증거가 작동한다.
 function handlePresentEvidence(evidence: Evidence): void {
-  if (isCaseEnded() || isWaiting || phase === 'scene') return;
+  if (
+    isCaseEnded() ||
+    isWaiting ||
+    phase === 'scene' ||
+    psychologyState?.phase === 'FINALE' ||
+    psychologyState?.phase === 'COURT'
+  ) {
+    return;
+  }
   slottedEvidence = slottedEvidence?.id === evidence.id ? undefined : evidence;
   renderEvidenceSlot();
   renderEvidence();
@@ -1038,7 +1492,11 @@ function renderEvidence(): void {
 
     const presentButton = document.createElement('button');
     presentButton.type = 'button';
-    presentButton.disabled = isWaiting;
+    presentButton.disabled =
+      isWaiting ||
+      isCaseEnded() ||
+      psychologyState?.phase === 'FINALE' ||
+      psychologyState?.phase === 'COURT';
     presentButton.textContent =
       slottedEvidence?.id === evidence.id
         ? '내려놓기'
@@ -1051,14 +1509,337 @@ function renderEvidence(): void {
     presentButton.addEventListener('click', () => handlePresentEvidence(evidence));
     actions.append(viewButton, presentButton);
 
+    const probe = psychologyDefinition?.probes.find(
+      (entry) => entry.evidenceId === evidence.id,
+    );
+    if (
+      probe &&
+      psychologyState &&
+      (psychologyState.phase === 'SESSION_ONE' ||
+        psychologyState.phase === 'SESSION_TWO')
+    ) {
+      const probeButton = document.createElement('button');
+      probeButton.type = 'button';
+      probeButton.className = 'probe-button';
+      const used = psychologyState.usedProbeIds.includes(probe.id);
+      probeButton.textContent = used ? '떠보기 완료' : '떠보기';
+      probeButton.disabled = isWaiting || used || isCaseEnded();
+      probeButton.addEventListener('click', () => useProbe(probe.id));
+      actions.append(probeButton);
+    }
+
     card.append(title, description, actions);
     evidenceList.append(card);
   }
 }
 
+function useProbe(probeId: string): void {
+  const definition = psychologyDefinition;
+  const state = psychologyState;
+  if (
+    !definition ||
+    !state ||
+    isWaiting ||
+    isCaseEnded() ||
+    !canAskQuestion(gameState)
+  ) {
+    return;
+  }
+
+  const probe = definition.probes.find((entry) => entry.id === probeId);
+  if (!probe || state.usedProbeIds.includes(probe.id)) return;
+  const active = session();
+  const result = resolveProbe(
+    definition,
+    state,
+    probe.id,
+    active.contractState.statements.map((statement) => statement.claimId),
+  );
+  appendMessage('detective', probe.question);
+  active.history.push({ role: 'user', content: probe.question });
+  appendMessage('suspect', result.reactionLine);
+  active.history.push({ role: 'assistant', content: result.reactionLine });
+  if (!active.presentedEvidenceIds.includes(probe.evidenceId)) {
+    active.presentedEvidenceIds.push(probe.evidenceId);
+  }
+  gameState = recordCompletedTurn(gameState);
+  applyPsychologyProgress(result);
+  renderStatus();
+  renderEvidence();
+}
+
 // ── 최종 보고서 ────────────────────────────────────────────────
 // 자백이 아니라 증거 사슬로 사건을 끝낸다. 진범이 끝까지 부인해도
 // 올바른 증거를 모으면 유죄가 나오고, 진범을 놓아주면 그 자리에서 패배한다.
+
+interface CourtArgumentOption {
+  key: string;
+  argument: CourtArgument;
+  label: string;
+}
+
+function courtArgumentOptions(): CourtArgumentOption[] {
+  const court = activeCase.court;
+  if (!court) return [];
+  const confirmed = new Set(
+    psychologyState?.confirmedContradictionIds ?? [],
+  );
+  const options = new Map<string, CourtArgumentOption>();
+  for (const issue of court.issues) {
+    for (const accepted of issue.acceptedArguments) {
+      if (!confirmed.has(accepted.contradictionId)) continue;
+      if (
+        !accepted.requiredEvidenceIds.every((id) =>
+          acquiredEvidenceIds.has(id),
+        )
+      ) {
+        continue;
+      }
+      const argument: CourtArgument = {
+        issueId: '',
+        contradictionId: accepted.contradictionId,
+        evidenceIds: [...accepted.requiredEvidenceIds],
+      };
+      const key = JSON.stringify({
+        contradictionId: argument.contradictionId,
+        evidenceIds: argument.evidenceIds,
+      });
+      if (options.has(key)) continue;
+      const contradiction = psychologyDefinition?.contradictions.find(
+        (entry) => entry.id === accepted.contradictionId,
+      );
+      const evidenceNames = accepted.requiredEvidenceIds.map(
+        (id) => activeCase.evidences.find((entry) => entry.id === id)?.name ?? id,
+      );
+      options.set(key, {
+        key,
+        argument,
+        label: `${accepted.contradictionId} · ${contradiction?.label ?? '확정 모순'} → ${evidenceNames.join(' + ')}`,
+      });
+    }
+  }
+  return [...options.values()];
+}
+
+function courtReady(): boolean {
+  const court = activeCase.court;
+  if (!court || courtCandidateId === '') return false;
+  return (
+    courtCandidateId === court.noProsecutionCandidateId ||
+    courtChargeId !== ''
+  );
+}
+
+function createCourtIssueBoard(): HTMLElement {
+  const court = activeCase.court;
+  const board = document.createElement('div');
+  board.className = 'court-issues';
+  if (!court) return board;
+  const argumentOptions = courtArgumentOptions();
+
+  for (const issue of court.issues) {
+    const card = document.createElement('section');
+    card.className = `court-issue ${issue.kind.toLocaleLowerCase()}`;
+    const label = document.createElement('label');
+    const title = document.createElement('strong');
+    title.textContent = issue.label;
+    const description = document.createElement('small');
+    description.textContent = issue.description;
+    const select = document.createElement('select');
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = argumentOptions.length
+      ? '확정 사실을 배치하세요'
+      : '사용할 수 있는 확정 사실이 없습니다';
+    select.append(empty);
+    for (const option of argumentOptions) {
+      const element = document.createElement('option');
+      element.value = option.key;
+      element.textContent = option.label;
+      select.append(element);
+    }
+    select.value = courtArgumentSelections.get(issue.id) ?? '';
+    select.disabled = argumentOptions.length === 0;
+    select.addEventListener('change', () => {
+      if (select.value) courtArgumentSelections.set(issue.id, select.value);
+      else courtArgumentSelections.delete(issue.id);
+    });
+    label.append(title, description, select);
+    card.append(label);
+    board.append(card);
+  }
+  return board;
+}
+
+function renderCourtForm(): void {
+  const court = activeCase.court;
+  if (!court) return;
+  reportEyebrow.textContent = '핵심 공판 · 최종 논고';
+  reportTitle.textContent = '자백보다 강한 논증을 만드세요';
+  reportContent.replaceChildren();
+  reportSubmit.hidden = false;
+  reportSubmit.textContent = '최종 논고 제출';
+  reportNote.textContent =
+    '확보한 사실만 법정에서 쓸 수 있습니다. 법률 적용은 게임적으로 각색됐습니다.';
+
+  const intro = document.createElement('p');
+  intro.className = 'court-intro';
+  intro.textContent =
+    '기소 대상과 죄명을 정한 뒤, 세 쟁점에 확정 사실을 하나씩 배치하세요. 같은 모순도 쟁점에 따라 요구되는 뒷받침 증거가 다릅니다.';
+  reportContent.append(intro);
+
+  const candidateHeading = document.createElement('h3');
+  candidateHeading.className = 'report-heading';
+  candidateHeading.textContent = '누구를 기소합니까';
+  const candidateOptions = optionRow(
+    'court-candidate',
+    court.candidates.map((entry) => ({
+      id: entry.id,
+      label: `${entry.label} · ${entry.description}`,
+    })),
+    courtCandidateId,
+    (id) => {
+      courtCandidateId = id;
+      reportSubmit.disabled = !courtReady();
+    },
+  );
+  candidateOptions.setAttribute('role', 'radiogroup');
+  candidateOptions.setAttribute('aria-label', '기소 대상');
+  reportContent.append(candidateHeading, candidateOptions);
+
+  const chargeHeading = document.createElement('h3');
+  chargeHeading.className = 'report-heading';
+  chargeHeading.textContent = '어떤 죄명으로 공소를 구성합니까';
+  const chargeOptions = optionRow(
+    'court-charge',
+    court.charges.map((entry) => ({
+      id: entry.id,
+      label: `${entry.label} · ${entry.description}`,
+    })),
+    courtChargeId,
+    (id) => {
+      courtChargeId = id;
+      reportSubmit.disabled = !courtReady();
+    },
+  );
+  chargeOptions.setAttribute('role', 'radiogroup');
+  chargeOptions.setAttribute('aria-label', '적용 죄명');
+  reportContent.append(chargeHeading, chargeOptions);
+
+  const issuesHeading = document.createElement('h3');
+  issuesHeading.className = 'report-heading';
+  issuesHeading.textContent = `공판 쟁점 ${court.issues.length}개`;
+  reportContent.append(issuesHeading, createCourtIssueBoard());
+  reportSubmit.disabled = !courtReady();
+}
+
+function renderCourtVerdict(result: CourtVerdict): void {
+  const court = activeCase.court;
+  reportEyebrow.textContent = '판결';
+  reportTitle.textContent = result.copy.title;
+  reportContent.replaceChildren();
+  reportSubmit.hidden = true;
+  reportNote.textContent = '사건이 종결됐습니다.';
+
+  const heading = document.createElement('h3');
+  heading.className = `verdict-title ${result.win ? 'win' : 'lose'}`;
+  heading.textContent = result.copy.title;
+  const summary = document.createElement('p');
+  summary.className = 'verdict-line';
+  summary.textContent = result.copy.summary;
+  reportContent.append(heading, summary);
+
+  if (court && result.satisfiedIssueIds.length > 0) {
+    const issueHeading = document.createElement('h3');
+    issueHeading.className = 'report-heading';
+    issueHeading.textContent = '재판부가 받아들인 쟁점';
+    const list = document.createElement('ul');
+    list.className = 'court-result-list';
+    for (const issueId of result.satisfiedIssueIds) {
+      const item = document.createElement('li');
+      item.textContent =
+        court.issues.find((entry) => entry.id === issueId)?.label ?? issueId;
+      list.append(item);
+    }
+    reportContent.append(issueHeading, list);
+  }
+  if (result.rejectedArgumentIndexes.length > 0) {
+    const rejected = document.createElement('p');
+    rejected.className = 'verdict-line court-rejected';
+    rejected.textContent = `쟁점과 맞지 않아 배척된 논거 ${result.rejectedArgumentIndexes.length}개`;
+    reportContent.append(rejected);
+  }
+
+  const epilogueHeading = document.createElement('h3');
+  epilogueHeading.className = 'report-heading';
+  epilogueHeading.textContent = '그 후';
+  const epilogue = document.createElement('p');
+  epilogue.className = 'verdict-epilogue';
+  epilogue.textContent = result.copy.epilogue;
+  reportContent.append(epilogueHeading, epilogue);
+}
+
+function openCourtBoard(): void {
+  const court = activeCase.court;
+  if (!court || isWaiting) return;
+  if (psychologyState?.phase === 'SESSION_ONE') {
+    appendMessage('hint', '감식 결과를 확정한 뒤 공판 논증을 시작할 수 있다.');
+    return;
+  }
+  if (courtVerdict) {
+    renderCourtVerdict(courtVerdict);
+  } else if (psychologyState?.phase === 'FINALE') {
+    openFinaleDialog();
+    return;
+  } else {
+    renderCourtForm();
+  }
+  if (!reportDialog.open) reportDialog.showModal();
+  renderStatus();
+}
+
+function submitCourt(): void {
+  const court = activeCase.court;
+  if (!court || !courtReady() || isWaiting || isCaseEnded()) return;
+  if (psychologyDefinition && psychologyState) {
+    if (psychologyState.phase === 'SESSION_TWO') {
+      psychologyState = enterCourt(psychologyDefinition, psychologyState);
+    }
+    if (psychologyState.phase !== 'COURT') return;
+  }
+  const optionMap = new Map(
+    courtArgumentOptions().map((option) => [option.key, option]),
+  );
+  const argumentsForCourt: CourtArgument[] = [];
+  for (const issue of court.issues) {
+    const key = courtArgumentSelections.get(issue.id);
+    const selected = key ? optionMap.get(key) : undefined;
+    if (!selected) continue;
+    argumentsForCourt.push({
+      ...selected.argument,
+      issueId: issue.id,
+    });
+  }
+  courtVerdict = judgeCourt(
+    court,
+    {
+      candidateId: courtCandidateId,
+      chargeId: courtChargeId || undefined,
+      arguments: argumentsForCourt,
+    },
+    {
+      confirmedContradictionIds:
+        psychologyState?.confirmedContradictionIds ?? [],
+      acquiredEvidenceIds: [...acquiredEvidenceIds],
+      sincerity: psychologyState?.sincerity ?? false,
+    },
+  );
+  renderCourtVerdict(courtVerdict);
+  appendMessage('system', `판결 — ${courtVerdict.copy.title}`);
+  renderStatus();
+  renderEvidence();
+  renderSuspectCard();
+}
 
 function reportReady(): boolean {
   return (
@@ -1084,6 +1865,7 @@ function optionRow(
     const input = document.createElement('input');
     input.type = multi ? 'checkbox' : 'radio';
     input.name = groupName;
+    input.value = option.id;
     input.checked = multi
       ? reportEvidenceIds.has(option.id)
       : selectedId === option.id;
@@ -1097,6 +1879,8 @@ function optionRow(
 }
 
 function renderReportForm(): void {
+  reportEyebrow.textContent = '최종 수사 보고서';
+  reportTitle.textContent = '사건을 종결합니다';
   reportContent.replaceChildren();
   reportSubmit.hidden = false;
   reportNote.textContent = '자백이 아니라 증거가 사건을 끝냅니다.';
@@ -1184,6 +1968,8 @@ const outcomeCopy: Record<
 };
 
 function renderVerdict(result: VerdictResult): void {
+  reportEyebrow.textContent = '판결';
+  reportTitle.textContent = outcomeCopy[result.outcome].title;
   reportContent.replaceChildren();
   reportSubmit.hidden = true;
   reportNote.textContent = '';
@@ -1281,6 +2067,11 @@ releaseButton.addEventListener('click', () => {
 indictButton.addEventListener('click', () => {
   if (isCaseEnded() || isWaiting) return;
   const current = activeSuspect();
+  if (activeCase.court) {
+    courtCandidateId = current.id;
+    openCourtBoard();
+    return;
+  }
   reportChoice = { ...reportChoice, accusedId: current.id };
   renderReportForm();
   reportNote.textContent = `${current.name}을(를) 재판에 넘깁니다. 동기·수법·증거를 갖춰 기소하세요.`;
@@ -1288,6 +2079,11 @@ indictButton.addEventListener('click', () => {
 });
 
 reportButton.addEventListener('click', () => {
+  if (isWaiting) return;
+  if (activeCase.court) {
+    openCourtBoard();
+    return;
+  }
   if (verdict) renderVerdict(verdict);
   else if (sceneEnd) renderSceneEnd();
   else if (phase === 'scene') renderSceneRulingForm();
@@ -1309,7 +2105,11 @@ reportDialog.addEventListener('click', (event) => {
   if (event.target === reportDialog) reportDialog.close();
 });
 reportSubmit.addEventListener('click', () => {
-  if (isCaseEnded()) return;
+  if (isCaseEnded() || isWaiting) return;
+  if (activeCase.court) {
+    submitCourt();
+    return;
+  }
   if (phase === 'scene' && !caseOpened) {
     submitSceneRuling();
     return;
@@ -1329,9 +2129,22 @@ reportSubmit.addEventListener('click', () => {
 questionForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
-  if (!question || isWaiting || isCaseEnded() || phase === 'scene' || !canAskQuestion(gameState)) return;
+  if (
+    !question ||
+    isWaiting ||
+    isCaseEnded() ||
+    phase === 'scene' ||
+    psychologyState?.phase === 'FINALE' ||
+    psychologyState?.phase === 'COURT' ||
+    !canAskQuestion(gameState)
+  ) {
+    return;
+  }
 
   const active = session();
+  active.followUpQuestions = active.followUpQuestions.filter(
+    (entry) => entry !== question,
+  );
   const confrontEvidence = slottedEvidence;
   slottedEvidence = undefined;
   renderEvidenceSlot();
@@ -1352,23 +2165,55 @@ questionForm.addEventListener('submit', async (event) => {
 
   const startedAt = performance.now();
 
-  // 탁자 위 증거가 방어를 무너뜨리는지 먼저 판정한다 (결정론).
-  // 무너뜨리면 저작된 앵커 대사가 플레이어의 추궁에 대한 대답이 된다.
-  let confrontTransitioned = false;
+  // 계약 전환과 심리 판정을 모두 먼저 계산한다. 저작된 특수 사건이 있으면
+  // 일반 계약 앵커나 LLM보다 우선한다.
+  let contractReaction: string | undefined;
+  let confrontationImpact: PsychologyProgressResult['impact'] | undefined;
   if (confrontEvidence) {
     const outcome = applyEvidencePresentation(
       activeSuspect().contract,
       active.contractState,
       confrontEvidence.id,
     );
+    // 전환이 없어도 모순 처리된 진술과 제시 기록은 반드시 보존한다.
+    active.contractState = outcome.state;
     if (outcome.transition) {
-      confrontTransitioned = true;
-      active.contractState = outcome.state;
       unlockedNotices.push(outcome.transition.unlockNotice);
       active.stalledTurns = 0;
-      const reaction = outcome.transition.reactionLine;
-      if (reaction) {
+      contractReaction = outcome.transition.reactionLine;
+      // 앵커 대사가 없는 계약(프로토타입)은 새 단계에서 LLM이 답한다.
+      renderStatements();
+      runDiscovery();
+    }
+
+    if (
+      psychologyDefinition &&
+      psychologyState &&
+      (psychologyState.phase === 'SESSION_ONE' ||
+        psychologyState.phase === 'SESSION_TWO')
+    ) {
+      const progress = resolveConfrontation(
+        psychologyDefinition,
+        psychologyState,
+        {
+          presentedEvidenceId: confrontEvidence.id,
+          recordedClaimIds: active.contractState.statements.map(
+            (statement) => statement.claimId,
+          ),
+        },
+      );
+      confrontationImpact = progress.impact;
+      applyPsychologyProgress(progress);
+      if (progress.specialEvent) {
         gameState = recordCompletedTurn(gameState);
+        const specialClaims = progress.specialEvent.recordClaimIds ?? [];
+        active.contractState = commitStatements(
+          activeSuspect().contract,
+          active.contractState,
+          specialClaims,
+          gameState.turn,
+        ).state;
+        const reaction = progress.specialEvent.reactionLine;
         const bubble = appendMessage('suspect', '', false);
         bubble.classList.add('streaming');
         active.history.push({ role: 'assistant', content: reaction });
@@ -1384,9 +2229,24 @@ questionForm.addEventListener('submit', async (event) => {
         questionInput.focus();
         return;
       }
-      // 앵커 대사가 없는 계약(프로토타입)은 새 단계에서 LLM이 답한다.
+    }
+
+    if (contractReaction) {
+      gameState = recordCompletedTurn(gameState);
+      const bubble = appendMessage('suspect', '', false);
+      bubble.classList.add('streaming');
+      active.history.push({ role: 'assistant', content: contractReaction });
+      active.messages.push({ kind: 'suspect', content: contractReaction });
       renderStatements();
       runDiscovery();
+      lastLatencyMs = performance.now() - startedAt;
+      isWaiting = false;
+      renderStatus();
+      renderEvidence();
+      renderSuspectTabs();
+      revealSuspectAnswer(bubble, contractReaction);
+      questionInput.focus();
+      return;
     }
   }
 
@@ -1410,6 +2270,7 @@ questionForm.addEventListener('submit', async (event) => {
       recentTurns: active.history.slice(-6, -1),
       presentedEvidence: confrontEvidence
         ? {
+            id: confrontEvidence.id,
             name: confrontEvidence.name,
             description: confrontEvidence.description,
           }
@@ -1439,17 +2300,61 @@ questionForm.addEventListener('submit', async (event) => {
     active.messages.push({ kind: 'suspect', content: result.line });
     gameState = recordCompletedTurn(gameState);
     const statementCountBefore = active.contractState.statements.length;
-    active.contractState = recordStatements(
+    const statementOutcome = commitStatements(
+      current.contract,
       active.contractState,
       result.plan.claimIds,
       gameState.turn,
     );
+    active.contractState = statementOutcome.state;
+    for (const revision of statementOutcome.revisions) {
+      appendMessage(
+        'system',
+        `진술 번복 — ${revision.topicLabel} · ${revision.previousTurn}턴 진술과 ${revision.nextTurn}턴 진술이 충돌한다.`,
+      );
+      if (
+        revision.followUpQuestion &&
+        !active.followUpQuestions.includes(revision.followUpQuestion)
+      ) {
+        active.followUpQuestions.push(revision.followUpQuestion);
+        appendMessage(
+          'hint',
+          `전용 추궁 해금 — ${revision.followUpQuestion}`,
+        );
+      }
+    }
+    if (
+      psychologyDefinition &&
+      psychologyState &&
+      (psychologyState.phase === 'SESSION_ONE' ||
+        psychologyState.phase === 'SESSION_TWO')
+    ) {
+      const commitmentProgress = resolveStatementCommitments(
+        psychologyDefinition,
+        psychologyState,
+        result.plan.claimIds,
+        active.contractState.statements.map((statement) => statement.claimId),
+      );
+      if (commitmentProgress.impact === 'COMMITMENT_LOCKED') {
+        confrontationImpact = 'COMMITMENT_LOCKED';
+      }
+      applyPsychologyProgress(commitmentProgress);
+    }
     renderStatements();
     runDiscovery();
     lastLatencyMs = performance.now() - startedAt;
     revealSuspectAnswer(responseBubble, result.line);
-    if (confrontEvidence && !confrontTransitioned) {
-      appendMessage('system', '이 증거로는 진술이 흔들리지 않았다.');
+    if (
+      confrontEvidence &&
+      (confrontationImpact === undefined ||
+        confrontationImpact === 'NO_EFFECT')
+    ) {
+      appendMessage(
+        'system',
+        psychologyDefinition
+          ? '효과 없음 — 이 증거는 현재 고착된 진술과 직접 연결되지 않았다.'
+          : '이 증거로는 진술이 흔들리지 않았다.',
+      );
     }
 
     // 정체 감지: 새 진술이 2턴 연속 없으면 수사 노트 힌트를 보여준다.
@@ -1498,6 +2403,20 @@ questionInput.addEventListener('keydown', (event) => {
 });
 
 resetButton.addEventListener('click', () => window.location.reload());
+psychologyAction.addEventListener('click', () => {
+  if (psychologyState?.phase === 'SESSION_ONE') openForensicDialog();
+  else if (psychologyState?.phase === 'FINALE') openFinaleDialog();
+  else openCourtBoard();
+});
+forensicSubmit.addEventListener('click', commitForensics);
+forensicClose.addEventListener('click', () => forensicDialog.close());
+forensicDialog.addEventListener('click', (event) => {
+  if (event.target === forensicDialog) forensicDialog.close();
+});
+finaleClose.addEventListener('click', () => finaleDialog.close());
+finaleDialog.addEventListener('click', (event) => {
+  if (event.target === finaleDialog) finaleDialog.close();
+});
 viewerClose.addEventListener('click', () => evidenceDialog.close());
 viewerPresent.addEventListener('click', () => {
   if (!selectedEvidence || isWaiting) return;

@@ -9,8 +9,54 @@ export interface CaseClaim {
   // 렌더러에 전달되는 승인된 의미. 이 문장 밖의 물질적 세부는 연기할 수 없다.
   meaning: string;
   truth: ClaimTruth;
+  // 같은 topicId 안의 서로 다른 valueId는 동시에 참일 수 없는 진술로
+  // 취급한다. 자연어를 재분석하지 않고 닫힌 claim 집합만으로 번복을 잡는다.
+  topicId?: string;
+  valueId?: string;
   // 이 증거가 정식 제시되면 해당 진술 기록은 모순 상태가 된다.
   contradictedBy?: readonly string[];
+}
+
+export interface ClaimTopic {
+  id: string;
+  label: string;
+  // 번복이 생겼을 때 플레이어에게 여는 저작 추궁. 자유 텍스트가 아니라
+  // 사건 데이터가 소유하므로 결정론적이다.
+  revisionFollowUp?: string;
+}
+
+export interface ForbiddenLinePattern {
+  id: string;
+  label: string;
+  // 사건 작성자가 소유하는 정규식 문자열. 렌더러 출력에만 적용하며
+  // 모델 프롬프트에는 패턴 원문을 노출하지 않는다.
+  pattern: string;
+}
+
+export interface UndeniableFactRule {
+  claimId: string;
+  stageIds: readonly string[];
+  // 이 사실이 강제된 턴에는 출력에도 인정 표현이 실제로 있어야 한다.
+  acknowledgementPattern: string;
+  // 렌더러가 두 번 실패했을 때 설명문 대신 말하게 할 자연스러운 저작 대사.
+  fallbackLine: string;
+  // 질문이나 정식 제시 증거가 이 사실을 직접 건드리면 planner 선택과
+  // 무관하게 승인 의미에 포함한다.
+  questionTerms?: readonly string[];
+  evidenceIds?: readonly string[];
+}
+
+export interface PositionContract {
+  stageIds: readonly string[];
+  // 비밀을 포함하지 않는 현재 입장. planner와 renderer 모두에 전달한다.
+  directive: string;
+  // 이 단계들에서 의미를 뒤집어서는 안 되는 핵심 주장.
+  protectedClaimIds: readonly string[];
+  // 조회 한 번으로 확인되는 사실. 인정하되 관련성만 다투게 한다.
+  undeniableFacts: readonly UndeniableFactRule[];
+  forbiddenLinePatterns: readonly ForbiddenLinePattern[];
+  // 두 번의 렌더링이 모두 입장을 어기면 사용하는 저작 안전 대사.
+  fallbackLine: string;
 }
 
 export interface DefenseStage {
@@ -50,22 +96,48 @@ export interface CaseContract {
   language: 'ko' | 'en';
   // 빈 입력창이 부담스러운 플레이어를 위한 시작 질문 제안 (심문 시작 전 표시).
   starterQuestions: readonly string[];
+  // 조서처럼 심문 시작 전에 이미 공식 기록으로 커밋된 진술. 모델 출력과
+  // 무관하게 0턴 진술로 생성한다.
+  initialClaimIds?: readonly string[];
   initialStageId: string;
   stages: readonly DefenseStage[];
   transitions: readonly StageTransition[];
   claims: readonly CaseClaim[];
+  claimTopics?: readonly ClaimTopic[];
+  position?: PositionContract;
   hints: readonly CaseHint[];
   // 시트 밖 세부 검사용 물질 명사. 렌더링된 대사에 이 토큰이 나오면
   // 승인된 의미나 심문관 질문에 근거가 있어야 한다.
   materialLexicon: readonly string[];
+  // 플레이어가 질문에 직접 적어도, 승인된 claim에 포함되기 전에는 모델이
+  // 되받아 말할 수 없는 비공개 현장 세부.
+  sealedTerms?: readonly string[];
 }
 
-export type StatementStatus = 'UNVERIFIED' | 'CONTRADICTED';
+export type StatementStatus = 'UNVERIFIED' | 'REVISED' | 'CONTRADICTED';
 
 export interface StatementRecord {
   claimId: string;
   turn: number;
   status: StatementStatus;
+  supersededByClaimId?: string;
+}
+
+export interface StatementRevision {
+  topicId: string;
+  topicLabel: string;
+  previousClaimId: string;
+  previousTurn: number;
+  nextClaimId: string;
+  nextTurn: number;
+  followUpQuestion?: string;
+}
+
+export interface StatementCommitOutcome {
+  state: ContractState;
+  addedClaimIds: string[];
+  reaffirmedClaimIds: string[];
+  revisions: StatementRevision[];
 }
 
 export interface ContractState {
@@ -74,7 +146,75 @@ export interface ContractState {
 }
 
 export function createContractState(contract: CaseContract): ContractState {
-  return { stageId: contract.initialStageId, statements: [] };
+  const claimIds = new Set(contract.claims.map((claim) => claim.id));
+  const stageIds = new Set(contract.stages.map((stage) => stage.id));
+  const topics = new Map(
+    (contract.claimTopics ?? []).map((topic) => [topic.id, topic]),
+  );
+  const initialClaimIds = contract.initialClaimIds ?? [];
+  const seen = new Set<string>();
+  for (const claim of contract.claims) {
+    if ((claim.topicId === undefined) !== (claim.valueId === undefined)) {
+      throw new Error(`진술 주제와 값은 함께 지정해야 합니다: ${claim.id}`);
+    }
+    if (claim.topicId !== undefined && !topics.has(claim.topicId)) {
+      throw new Error(`알 수 없는 진술 주제: ${claim.topicId}`);
+    }
+  }
+  if (contract.position) {
+    for (const stageId of contract.position.stageIds) {
+      if (!stageIds.has(stageId)) {
+        throw new Error(`알 수 없는 입장 계약 단계: ${stageId}`);
+      }
+    }
+    for (const claimId of contract.position.protectedClaimIds) {
+      if (!claimIds.has(claimId)) {
+        throw new Error(`알 수 없는 보호 입장 진술: ${claimId}`);
+      }
+    }
+    for (const fact of contract.position.undeniableFacts) {
+      if (!claimIds.has(fact.claimId)) {
+        throw new Error(`알 수 없는 부인 불가 진술: ${fact.claimId}`);
+      }
+      for (const stageId of fact.stageIds) {
+        if (!stageIds.has(stageId)) {
+          throw new Error(`알 수 없는 부인 불가 사실 단계: ${stageId}`);
+        }
+      }
+      try {
+        new RegExp(fact.acknowledgementPattern, 'i');
+      } catch {
+        throw new Error(`잘못된 부인 불가 사실 패턴: ${fact.claimId}`);
+      }
+      if (!fact.fallbackLine.trim()) {
+        throw new Error(`부인 불가 사실 폴백 대사가 비어 있습니다: ${fact.claimId}`);
+      }
+    }
+    for (const rule of contract.position.forbiddenLinePatterns) {
+      try {
+        new RegExp(rule.pattern, 'i');
+      } catch {
+        throw new Error(`잘못된 입장 금칙 패턴: ${rule.id}`);
+      }
+    }
+  }
+  for (const claimId of initialClaimIds) {
+    if (!claimIds.has(claimId)) {
+      throw new Error(`알 수 없는 초기 진술: ${claimId}`);
+    }
+    if (seen.has(claimId)) {
+      throw new Error(`중복된 초기 진술: ${claimId}`);
+    }
+    seen.add(claimId);
+  }
+  return {
+    stageId: contract.initialStageId,
+    statements: initialClaimIds.map((claimId) => ({
+      claimId,
+      turn: 0,
+      status: 'UNVERIFIED' as const,
+    })),
+  };
 }
 
 export function getStage(
@@ -93,14 +233,49 @@ export function getClaim(
   return contract.claims.find((claim) => claim.id === claimId);
 }
 
+export function getActivePosition(
+  contract: CaseContract,
+  state: ContractState,
+): PositionContract | undefined {
+  const position = contract.position;
+  return position?.stageIds.includes(state.stageId) ? position : undefined;
+}
+
 export function allowedClaims(
   contract: CaseContract,
   state: ContractState,
 ): CaseClaim[] {
   const stage = getStage(contract, state.stageId);
-  return stage.allowedClaimIds
+  const position = getActivePosition(contract, state);
+  const undeniableIds =
+    position?.undeniableFacts
+      .filter((fact) => fact.stageIds.includes(state.stageId))
+      .map((fact) => fact.claimId) ?? [];
+  return [...new Set([...stage.allowedClaimIds, ...undeniableIds])]
     .map((id) => getClaim(contract, id))
     .filter((claim): claim is CaseClaim => claim !== undefined);
+}
+
+export function requiredUndeniableClaimIds(
+  contract: CaseContract,
+  state: ContractState,
+  question: string,
+  evidenceId?: string,
+): string[] {
+  const position = getActivePosition(contract, state);
+  if (!position) return [];
+  const normalizedQuestion = question.toLocaleLowerCase();
+  return position.undeniableFacts
+    .filter(
+      (fact) =>
+        fact.stageIds.includes(state.stageId) &&
+        ((evidenceId !== undefined &&
+          fact.evidenceIds?.includes(evidenceId) === true) ||
+          fact.questionTerms?.some((term) =>
+            normalizedQuestion.includes(term.toLocaleLowerCase()),
+          ) === true),
+    )
+    .map((fact) => fact.claimId);
 }
 
 export interface PresentationOutcome {
@@ -151,17 +326,97 @@ export function validatePlannedClaimIds(
   state: ContractState,
   claimIds: readonly string[],
 ): ClaimValidation {
-  const stage = getStage(contract, state.stageId);
+  const allowed = new Set(allowedClaims(contract, state).map((claim) => claim.id));
   const valid: string[] = [];
   const rejected: string[] = [];
   for (const id of claimIds) {
-    if (stage.allowedClaimIds.includes(id) && !valid.includes(id)) {
+    if (allowed.has(id) && !valid.includes(id)) {
       valid.push(id);
     } else if (!valid.includes(id)) {
       rejected.push(id);
     }
   }
   return { valid, rejected };
+}
+
+export function commitStatements(
+  contract: CaseContract,
+  state: ContractState,
+  claimIds: readonly string[],
+  turn: number,
+): StatementCommitOutcome {
+  const statements = [...state.statements];
+  const known = new Set(statements.map((entry) => entry.claimId));
+  const addedClaimIds: string[] = [];
+  const reaffirmedClaimIds: string[] = [];
+  const revisions: StatementRevision[] = [];
+  const topics = new Map(
+    (contract.claimTopics ?? []).map((topic) => [topic.id, topic]),
+  );
+
+  for (const claimId of [...new Set(claimIds)]) {
+    const claim = getClaim(contract, claimId);
+    if (!claim) continue;
+    if (known.has(claimId)) {
+      reaffirmedClaimIds.push(claimId);
+      continue;
+    }
+
+    if (claim.topicId !== undefined && claim.valueId !== undefined) {
+      let previousIndex = -1;
+      for (let index = statements.length - 1; index >= 0; index -= 1) {
+        const statement = statements[index];
+        if (!statement) continue;
+        const previous = getClaim(contract, statement.claimId);
+        if (
+          previous?.topicId === claim.topicId &&
+          previous.valueId !== undefined &&
+          previous.valueId !== claim.valueId
+        ) {
+          previousIndex = index;
+          break;
+        }
+      }
+      const previous =
+        previousIndex >= 0 ? statements[previousIndex] : undefined;
+      if (previous !== undefined) {
+        statements[previousIndex] = {
+          ...previous,
+          status:
+            previous.status === 'CONTRADICTED'
+              ? 'CONTRADICTED'
+              : 'REVISED',
+          supersededByClaimId: claimId,
+        };
+        const topic = topics.get(claim.topicId);
+        revisions.push({
+          topicId: claim.topicId,
+          topicLabel: topic?.label ?? claim.topicId,
+          previousClaimId: previous.claimId,
+          previousTurn: previous.turn,
+          nextClaimId: claimId,
+          nextTurn: turn,
+          ...(topic?.revisionFollowUp
+            ? { followUpQuestion: topic.revisionFollowUp }
+            : {}),
+        });
+      }
+    }
+
+    known.add(claimId);
+    addedClaimIds.push(claimId);
+    statements.push({ claimId, turn, status: 'UNVERIFIED' });
+  }
+
+  return {
+    state:
+      addedClaimIds.length === 0 && revisions.length === 0
+        ? state
+        : { ...state, statements },
+    addedClaimIds,
+    reaffirmedClaimIds,
+    revisions,
+  };
 }
 
 // 정체 상태에서 보여줄 힌트를 고른다. 현재 단계에서 유효하고, 목표

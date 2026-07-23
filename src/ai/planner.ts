@@ -1,4 +1,8 @@
-import type { CaseClaim, DefenseStage } from '../engine/contract';
+import type {
+  CaseClaim,
+  DefenseStage,
+  PositionContract,
+} from '../engine/contract';
 import type { ChatMessage } from './types';
 
 // 1차 호출(계획자): 자유 텍스트가 아니라 엔진이 준 후보 중에서
@@ -29,10 +33,23 @@ export function buildPlannerPrompt(
   candidates: readonly CaseClaim[],
   recentTurns: readonly ChatMessage[],
   language: 'ko' | 'en' = 'ko',
+  suspectName = language === 'en' ? 'the suspect' : '용의자',
+  position?: PositionContract,
 ): string {
+  const undeniableIds = new Set(
+    position?.undeniableFacts.map((fact) => fact.claimId) ?? [],
+  );
   const candidateList = candidates
-    .map((claim) => `- ${claim.id}: ${claim.meaning}`)
+    .map(
+      (claim) =>
+        `- ${claim.id}${undeniableIds.has(claim.id) ? ' [UNDENIABLE FACT]' : ''}: ${claim.meaning}`,
+    )
     .join('\n');
+  const positionBlock = position
+    ? language === 'en'
+      ? `\nPosition contract: ${position.directive}\n`
+      : `\n입장 계약: ${position.directive}\n`
+    : '';
 
   if (language === 'en') {
     const recentEn = recentTurns
@@ -43,10 +60,11 @@ export function buildPlannerPrompt(
       .join('\n');
 
     return `You are the response planner for an interrogation scene. Decide how
-the suspect reacts to the detective's question. Do not write dialogue —
+${suspectName} reacts to the detective's question. Do not write dialogue —
 output JSON only.
 
 Current defense strategy: ${stage.strategy}
+${positionBlock}
 
 Available claim candidates (never pick outside these IDs):
 ${candidateList}
@@ -57,6 +75,8 @@ ${recentEn || '(none)'}
 Rules:
 - Pick 1-2 claimIds directly relevant to the detective's question.
 - If no candidate is relevant, return an empty array.
+- Never deny the position contract or an [UNDENIABLE FACT]. Dispute only its
+  relevance to the accusation.
 - Set counterQuestion to true only when the suspect would defensively ask back.
 - The suspect never asks the detective for case information. A counter-question
   may only push back on the accusation or its logic, and should be rare.
@@ -75,10 +95,11 @@ Output JSON only, with this schema:
     )
     .join('\n');
 
-  return `너는 심문 장면의 응답 계획자다. 용의자 한세라가 형사의 질문에
-어떻게 반응할지 결정한다. 대사를 쓰지 말고 JSON만 출력한다.
+  return `너는 심문 장면의 응답 계획자다. 형사의 질문에 대한 용의자
+${suspectName}의 반응을 결정한다. 대사를 쓰지 말고 JSON만 출력한다.
 
 현재 방어 전략: ${stage.strategy}
+${positionBlock}
 
 사용 가능한 진술 후보 (이 ID 밖에서는 절대 고르지 않는다):
 ${candidateList}
@@ -89,6 +110,8 @@ ${recent || '(없음)'}
 규칙:
 - claimIds는 형사의 질문과 직접 관련된 후보만 1~2개 고른다.
 - 질문과 관련된 후보가 없으면 빈 배열을 반환한다.
+- 입장 계약과 [UNDENIABLE FACT]는 부정하지 않는다. 확인 가능한 사실은
+  인정하고, 혐의와의 관련성만 다툰다.
 - counterQuestion은 용의자가 방어적으로 되물을 때만 true로 한다.
 - 용의자는 수사관에게 사건 정보를 묻지 않는다. 되물음은 혐의나 추론에
   대한 반박일 때만, 드물게 쓴다.

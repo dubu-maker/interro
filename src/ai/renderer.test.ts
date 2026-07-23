@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hanSeraContract } from '../cases/prototype/contract';
+import { kimMancheolContract } from '../cases/case2/contract';
 import { composeFallbackLine, inspectRenderedLine } from './renderer';
 
 const s1Meanings = [
@@ -51,6 +52,25 @@ describe('inspectRenderedLine', () => {
       question: '책상 위 커피잔 두 개는 어떻게 설명할 겁니까?',
     });
     expect(result.safe).toBe(true);
+  });
+
+  it('봉인된 현장 세부는 질문에 있어도 승인 claim 없이는 말하지 않는다', () => {
+    const result = inspect('현장에는 떡볶이가 쏟아져 있었습니다.', {
+      approvedMeanings: [],
+      question: '현장에 떡볶이가 쏟아져 있었죠?',
+      materialLexicon: ['떡볶이'],
+      sealedTerms: ['떡볶이'],
+    });
+    expect(result.violations).toContain('봉인된 세부: 떡볶이');
+
+    expect(
+      inspect('떡볶이가 쏟아져 있었습니다.', {
+        approvedMeanings: ['현장에 떡볶이가 쏟아져 있었다.'],
+        question: '무엇을 봤습니까?',
+        materialLexicon: ['떡볶이'],
+        sealedTerms: ['떡볶이'],
+      }).safe,
+    ).toBe(true);
   });
 
   it('승인되지 않은 시간 표현은 거부된다', () => {
@@ -153,5 +173,47 @@ describe('composeFallbackLine', () => {
 
   it('승인된 의미가 없으면 중립 문장을 쓴다', () => {
     expect(composeFallbackLine([])).toContain('더 드릴 말이 없습니다');
+  });
+});
+
+describe('김만철 입장 계약 출력 검사', () => {
+  const positionInput = {
+    approvedMeanings: [
+      '사고 당시 자신이 차량을 운전했다고 자백한다.',
+      '김서연은 자신의 딸이라는 가족관계를 인정한다.',
+      '87,000원이 결제된 카드는 자기 명의라고 인정한다.',
+    ],
+    question: '정말 당신이 운전했고 김서연은 딸이며 카드도 본인 것입니까?',
+    materialLexicon: kimMancheolContract.materialLexicon,
+    sealedTerms: kimMancheolContract.sealedTerms,
+    forbiddenLinePatterns:
+      kimMancheolContract.position?.forbiddenLinePatterns ?? [],
+    counterQuestion: false,
+  };
+
+  it.each([
+    '제가 사고를 낸 것은 맞지 않습니다.',
+    '저는 그날 차를 타지도 않았습니다.',
+    '제가 운전한 것은 아닙니다.',
+    '그 차량은 제 차가 아닙니다.',
+    '다른 분의 카드일 수도 있습니다.',
+    '김서연이 누군지 모르겠습니다.',
+    '그날 전화한 상대방이 누군지 기억나지 않습니다.',
+    '사고를 낸 사람은 제가 아닙니다.',
+  ])('핵심 입장이나 부인 불가 사실을 뒤집는 대사를 폐기한다: %s', (line) => {
+    const result = inspectRenderedLine(line, positionInput);
+    expect(result.safe).toBe(false);
+    expect(result.violations.some((entry) => entry.includes('입장 계약'))).toBe(
+      true,
+    );
+  });
+
+  it('사실을 인정하고 관련성만 다투는 대사는 허용한다', () => {
+    expect(
+      inspectRenderedLine(
+        '제가 운전한 건 맞습니다. 김서연은 제 딸이고 카드도 제 명의입니다. 하지만 그 아이는 사고와 관계없습니다.',
+        positionInput,
+      ).safe,
+    ).toBe(true);
   });
 });

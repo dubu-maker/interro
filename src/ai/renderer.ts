@@ -1,5 +1,9 @@
 import type { ResponsePlan } from './planner';
 import { inspectSuspectResponse } from './responseGuard';
+import type {
+  ForbiddenLinePattern,
+  PositionContract,
+} from '../engine/contract';
 
 // 2차 호출(렌더러): 승인된 의미만 자연스러운 대사로 표현한다.
 // 전체 사건 시트, 잠긴 사실, 범인 정보는 렌더러에 주지 않는다.
@@ -13,7 +17,8 @@ export interface SuspectPersona {
 }
 
 const speechActDirectives: Record<ResponsePlan['speechAct'], string> = {
-  DENIAL: '혐의나 주장을 부인한다.',
+  DENIAL:
+    '형사의 추론이나 관련성만 부인한다. 승인된 사실과 현재 입장은 뒤집지 않는다.',
   PARTIAL_ADMISSION: '승인된 의미의 범위 안에서만 인정한다.',
   ADMISSION: '승인된 의미를 담담하게 인정한다.',
   DEFLECT: '직접 답을 피하고 짧게 흘린다.',
@@ -27,7 +32,8 @@ const emotionDirectives: Record<ResponsePlan['emotion'], string> = {
 };
 
 const speechActDirectivesEn: Record<ResponsePlan['speechAct'], string> = {
-  DENIAL: 'Deny the allegation or claim.',
+  DENIAL:
+    'Deny only the detective’s inference or relevance. Never reverse an approved fact or the current position.',
   PARTIAL_ADMISSION: 'Admit only what is within the approved meanings.',
   ADMISSION: 'Calmly acknowledge the approved meanings.',
   DEFLECT: 'Avoid answering directly; keep it brief.',
@@ -46,7 +52,13 @@ export function buildRendererPrompt(
   plan: ResponsePlan,
   approvedMeanings: readonly string[],
   language: PlayLanguage = 'ko',
+  position?: PositionContract,
 ): string {
+  const positionBlock = position
+    ? language === 'en'
+      ? `Position contract: ${position.directive}\n`
+      : `입장 계약: ${position.directive}\n`
+    : '';
   if (language === 'en') {
     const meanings =
       approvedMeanings.length > 0
@@ -59,6 +71,7 @@ anything else.
 
 Voice and personality: ${suspect.persona}
 Current stance: ${strategy}
+${positionBlock}
 Emotion: ${emotionDirectivesEn[plan.emotion]}
 Speech act: ${speechActDirectivesEn[plan.speechAct]}
 
@@ -68,6 +81,7 @@ ${meanings}
 Rules:
 - Do not add any new people, times, places, objects, or actions beyond the meanings above.
 - Do not drop or contradict the approved meanings.
+- Never reverse the position contract or deny a fact marked as undeniable.
 - Reply in natural spoken English, 1-3 sentences.
 - Do not invite further questions or wrap up like a customer-service agent.
 ${plan.counterQuestion ? '- You may end with one defensive counter-question.' : '- Do not end with a question. Do not use question marks.'}`;
@@ -83,6 +97,7 @@ ${plan.counterQuestion ? '- You may end with one defensive counter-question.' : 
 
 말투와 성격: ${suspect.persona}
 현재 태도: ${strategy}
+${positionBlock}
 감정: ${emotionDirectives[plan.emotion]}
 화행: ${speechActDirectives[plan.speechAct]}
 
@@ -92,6 +107,7 @@ ${meanings}
 규칙:
 - 위 의미 목록에 없는 새로운 인물, 시간, 장소, 물건, 행동을 추가하지 않는다.
 - 승인된 의미를 삭제하거나 모순되게 바꾸지 않는다.
+- 입장 계약과 부인 불가 사실을 뒤집지 않는다. 관련성만 다툰다.
 - 자연스러운 한국어 대화체 1~3문장으로 답한다.
 - 형사에게 다음 질문을 청하거나 상담원처럼 응대를 마치지 않는다.
 ${plan.counterQuestion ? '- 마지막에 방어적인 되물음 한 문장을 붙여도 된다.' : '- 질문으로 끝내지 않는다. 물음표를 사용하지 않는다.'}`;
@@ -106,6 +122,9 @@ export interface RenderInspectionInput {
   approvedMeanings: readonly string[];
   question: string;
   materialLexicon: readonly string[];
+  sealedTerms?: readonly string[];
+  forbiddenLinePatterns?: readonly ForbiddenLinePattern[];
+  requiredLinePatterns?: readonly ForbiddenLinePattern[];
   counterQuestion: boolean;
   language?: PlayLanguage;
 }
@@ -194,6 +213,30 @@ export function inspectRenderedLine(
     input.approvedMeanings.join(' ') + ' ' + input.question
   ).toLocaleLowerCase();
   const normalized = content.toLocaleLowerCase();
+
+  const approvedContext = input.approvedMeanings
+    .join(' ')
+    .toLocaleLowerCase();
+  for (const term of input.sealedTerms ?? []) {
+    const lowered = term.toLocaleLowerCase();
+    if (
+      materialTokenPresent(normalized, lowered, language) &&
+      !materialTokenPresent(approvedContext, lowered, language)
+    ) {
+      violations.push(`봉인된 세부: ${term}`);
+    }
+  }
+
+  for (const rule of input.forbiddenLinePatterns ?? []) {
+    if (new RegExp(rule.pattern, 'i').test(content)) {
+      violations.push(`입장 계약 위반: ${rule.label}`);
+    }
+  }
+  for (const rule of input.requiredLinePatterns ?? []) {
+    if (!new RegExp(rule.pattern, 'i').test(content)) {
+      violations.push(`부인 불가 사실 누락: ${rule.label}`);
+    }
+  }
 
   for (const token of input.materialLexicon) {
     const lowered = token.toLocaleLowerCase();

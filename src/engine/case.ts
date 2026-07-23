@@ -1,4 +1,6 @@
 import type { CaseContract } from './contract';
+import type { CourtDefinition } from './court';
+import type { PsychologyTrialDefinition } from './psychologyTrial';
 import type { SceneDefinition } from './scene';
 import type { Evidence } from './types';
 
@@ -57,6 +59,9 @@ export interface CaseDefinition {
   // 1막 현장 수사. 있으면 현장에서 시작하고, 타살 입건에 성공해야
   // 심문(2막)이 열린다. 없으면 바로 심문에서 시작한다.
   scene?: SceneDefinition;
+  // 심리·법정 특화 사건은 일반 심문 계약 위에 별도 결정론적 진행 규칙을 얹는다.
+  psychologyTrial?: PsychologyTrialDefinition;
+  court?: CourtDefinition;
   evidences: readonly Evidence[];
   suspects: readonly CaseSuspect[];
   initialEvidenceIds: readonly string[];
