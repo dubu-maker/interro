@@ -30,6 +30,9 @@ export class OllamaProvider implements ModelProvider {
       body: JSON.stringify({
         model: request.model,
         stream,
+        // 심문은 짧은 즉답과 JSON 계획이 핵심이다. Qwen 3 계열의 기본
+        // 사고 모드를 끄지 않으면 숨겨진 추론 토큰 때문에 턴 지연이 커진다.
+        think: false,
         keep_alive: '10m',
         ...(request.format ? { format: request.format } : {}),
         options: {

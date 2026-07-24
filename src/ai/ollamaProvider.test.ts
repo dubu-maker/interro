@@ -11,18 +11,19 @@ describe('OllamaProvider', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('일반 응답과 사용량을 반환한다', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: { content: '집에 있었습니다.' },
+          prompt_eval_count: 20,
+          eval_count: 8,
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            message: { content: '집에 있었습니다.' },
-            prompt_eval_count: 20,
-            eval_count: 8,
-          }),
-          { status: 200 },
-        ),
-      ),
+      fetchMock,
     );
 
     const provider = new OllamaProvider('/api/ollama');
@@ -31,6 +32,9 @@ describe('OllamaProvider', () => {
       inputTokens: 20,
       outputTokens: 8,
     });
+    expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({ model: 'test-model', think: false });
   });
 
   it('스트리밍 조각을 전달하고 최종 응답을 조립한다', async () => {

@@ -7,7 +7,7 @@ import type {
 export const openAiResponsesUrl = 'https://api.openai.com/v1/responses';
 export const openAiTestModel = 'gpt-5.6-luna';
 
-const localModel = 'qwen2.5:14b';
+const localModel = 'qwen3.5:9b';
 
 export function resolveDesktopModelConfiguration(
   environment: Readonly<Record<string, string | undefined>>,

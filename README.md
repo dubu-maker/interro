@@ -16,11 +16,12 @@
 - Windows 네이티브
 - Node.js 24+
 - Vite + Vanilla TypeScript
-- 로컬 모델: Ollama (`qwen2.5:14b` 기본값)
+- 로컬 모델: Ollama (`qwen3.5:9b` 기본값)
 - 선택적 원격 시험 모델: OpenAI API (`gpt-5.6-luna` 고정)
 
 사건 2의 최종 대사 품질 시험은 `gpt-5.6-luna`를 기준으로 한다. 개발 중
-반복 플레이와 오프라인 회귀 확인은 기존 `qwen2.5:14b` 경로를 사용한다.
+반복 플레이와 오프라인 회귀 확인은 `qwen3.5:9b` 비사고 모드 경로를
+사용한다.
 두 모델 모두 같은 `ModelProvider` 경계와 결정론적 사건 엔진을 거친다.
 
 사건 2의 심문은 팩트 계약 위에 입장 계약을 둔다. 김만철은 확인 가능한
@@ -49,7 +50,7 @@ npm run dev
 Ollama가 실행 중이어야 한다. 기본 모델은 다음 명령으로 준비할 수 있다.
 
 ```powershell
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 ```
 
 ### Windows 데스크톱 빌드

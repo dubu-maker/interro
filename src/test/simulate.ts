@@ -18,7 +18,7 @@ import {
 // 기록한다. 핵심 불변식: 시트 밖 출력이 생성될 수는 있어도 절대 최종
 // 대사나 상태에 반영되어서는 안 된다.
 
-const model = process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
+const model = process.env.OLLAMA_MODEL ?? 'qwen3.5:9b';
 const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434/api';
 const provider = new OllamaProvider(baseUrl);
 

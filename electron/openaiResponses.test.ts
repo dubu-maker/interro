@@ -25,7 +25,7 @@ describe('OpenAI Responses 요청', () => {
   it('기본값은 Ollama이며 로컬 모델만 환경변수로 바꾼다', () => {
     expect(resolveDesktopModelConfiguration({})).toEqual({
       provider: 'ollama',
-      defaultModel: 'qwen2.5:14b',
+      defaultModel: 'qwen3.5:9b',
     });
     expect(
       resolveDesktopModelConfiguration({ INTERRO_OLLAMA_MODEL: 'local-model' }),

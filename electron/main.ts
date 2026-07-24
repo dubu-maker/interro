@@ -159,6 +159,8 @@ async function requestLocalModel(
       body: JSON.stringify({
         model: request.model,
         stream: false,
+        // 데스크톱 로컬 경로도 웹과 동일하게 즉답 모드로 고정한다.
+        think: false,
         keep_alive: '10m',
         ...(request.format ? { format: request.format } : {}),
         options: {

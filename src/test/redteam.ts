@@ -10,7 +10,7 @@ import {
 import { suspect } from '../cases/prototype/fixture';
 import { attacks } from './attacks';
 
-const model = process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
+const model = process.env.OLLAMA_MODEL ?? 'qwen3.5:9b';
 const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://127.0.0.1:11434/api';
 const provider = new OllamaProvider(baseUrl);
 const guarded = process.env.REDTEAM_GUARDED === '1';

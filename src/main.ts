@@ -93,7 +93,7 @@ const ollamaBaseUrl =
 const desktopModel = window.interroDesktop?.model;
 const defaultModel = desktopModel?.defaultModel ??
   import.meta.env.VITE_OLLAMA_MODEL ??
-  'qwen2.5:14b';
+  'qwen3.5:9b';
 const provider = window.interroDesktop
   ? new DesktopModelProvider(window.interroDesktop)
   : new OllamaProvider(ollamaBaseUrl);
