@@ -125,6 +125,7 @@ const sceneStageLayout: SceneStageLayout =
 
 let gameState = createGameState(activeCase.maxTurns);
 let isWaiting = false;
+let interrogationTutorialDismissed = false;
 let totalInputTokens = 0;
 let totalOutputTokens = 0;
 let lastLatencyMs: number | undefined;
@@ -358,7 +359,7 @@ app.innerHTML = `
 
         <div id="evidence-slot" class="evidence-slot" hidden></div>
 
-        <div id="starter-questions" class="starter-questions"></div>
+        <div id="starter-questions" class="starter-questions" aria-live="polite"></div>
 
         <form id="question-form" class="question-form">
           <textarea
@@ -1214,33 +1215,99 @@ function revealSuspectAnswer(bubble: HTMLDivElement, content: string): void {
   step();
 }
 
-// 빈 입력창이 부담스러운 플레이어를 위한 시작 질문 제안. 첫 질문을
-// 보내면 사라진다. 클릭하면 입력창에 채워질 뿐 자동 제출하지 않는다 —
-// 직접 질문을 쓰는 기본 조작을 가르치기 위해서다.
+// 사건별 정답 질문을 나열하면 그 자체가 체크리스트가 된다. 첫 심문에는
+// 내용 힌트 대신 조작 흐름만 한 번 안내하고, 플레이 중 획득한 번복 추궁만
+// 실제 질문 칩으로 남긴다.
 function renderStarterQuestions(): void {
   starterQuestionsBox.replaceChildren();
   const active = session();
-  const experience = activeCase.interrogationExperience;
-  const selectedTopic = experience?.topics.find(
-    (entry) => entry.id === active.selectedTopicId,
-  );
-  const questions =
-    active.history.length === 0
-      ? selectedTopic
-        ? [selectedTopic.starterQuestion]
-        : activeSuspect().contract.starterQuestions
-      : active.followUpQuestions;
+  if (phase === 'scene') {
+    starterQuestionsBox.hidden = true;
+    return;
+  }
+
+  if (active.history.length === 0) {
+    if (interrogationTutorialDismissed) {
+      starterQuestionsBox.hidden = true;
+      return;
+    }
+
+    starterQuestionsBox.hidden = false;
+    const tutorial = document.createElement('section');
+    tutorial.className = 'interrogation-tutorial';
+    tutorial.setAttribute('aria-label', '첫 심문 안내');
+
+    const marker = document.createElement('span');
+    marker.className = 'interrogation-tutorial__marker';
+    marker.textContent = 'HOW';
+    marker.setAttribute('aria-hidden', 'true');
+
+    const copy = document.createElement('div');
+    copy.className = 'interrogation-tutorial__copy';
+    const eyebrow = document.createElement('span');
+    eyebrow.textContent = '첫 심문 안내';
+    const heading = document.createElement('strong');
+    heading.textContent = '정해진 질문 순서는 없습니다';
+    const description = document.createElement('p');
+    description.textContent =
+      '서류에서 마음에 걸리는 대목을 찾고 자기 말로 물어보세요. 대화 주제는 방향만 정하며, 기록이나 증거는 필요할 때 질문에 첨부할 수 있습니다.';
+    copy.append(eyebrow, heading, description);
+
+    const route = document.createElement('ol');
+    route.className = 'interrogation-tutorial__route';
+    const tutorialSteps = [
+      ['서류', '기록에서 이상한 점 찾기'],
+      ['질문', '자기 말로 자유롭게 묻기'],
+      ['첨부', '필요할 때만 근거 맞대기'],
+    ] as const;
+    for (const [label, detail] of tutorialSteps) {
+      const item = document.createElement('li');
+      const stepLabel = document.createElement('b');
+      stepLabel.textContent = label;
+      const stepDetail = document.createElement('span');
+      stepDetail.textContent = detail;
+      item.append(stepLabel, stepDetail);
+      route.append(item);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'interrogation-tutorial__actions';
+    if (dossierDefinition) {
+      const dossierAction = document.createElement('button');
+      dossierAction.type = 'button';
+      dossierAction.className = 'tutorial-action secondary';
+      dossierAction.textContent = '사건 서류 열기';
+      dossierAction.addEventListener('click', openDossier);
+      actions.append(dossierAction);
+    }
+    const dismissAction = document.createElement('button');
+    dismissAction.type = 'button';
+    dismissAction.className = 'tutorial-action primary';
+    dismissAction.textContent = '직접 질문하기';
+    dismissAction.addEventListener('click', () => {
+      interrogationTutorialDismissed = true;
+      renderStarterQuestions();
+      questionInput.focus();
+    });
+    actions.append(dismissAction);
+
+    tutorial.append(marker, copy, route, actions);
+    starterQuestionsBox.append(tutorial);
+    return;
+  }
+
+  const questions = active.followUpQuestions;
   if (questions.length === 0) {
     starterQuestionsBox.hidden = true;
     return;
   }
+
   starterQuestionsBox.hidden = false;
   for (const question of questions) {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'starter-chip';
-    chip.textContent =
-      active.history.length === 0 ? question : `번복 추궁 · ${question}`;
+    chip.textContent = `번복 추궁 · ${question}`;
     chip.addEventListener('click', () => {
       questionInput.value = question;
       questionInput.focus();
@@ -1328,9 +1395,7 @@ function renderInterrogationControls(): void {
     if (topicState?.exhausted) button.classList.add('exhausted');
     button.addEventListener('click', () => {
       active.selectedTopicId = topic.id;
-      if (!questionInput.value.trim()) {
-        questionInput.value = topic.starterQuestion;
-      }
+      questionInput.placeholder = `${topic.label}에 관해 자유롭게 질문한다…`;
       renderInterrogationControls();
       questionInput.focus();
     });
@@ -2888,6 +2953,9 @@ questionForm.addEventListener('submit', async (event) => {
     return;
   }
 
+  // 안내 버튼을 누르지 않고 바로 질문한 경우에도 다른 인물에게 다시
+  // 나타나지 않도록 첫 입력을 튜토리얼 완료로 취급한다.
+  interrogationTutorialDismissed = true;
   const active = session();
   const experience = activeCase.interrogationExperience;
   const replyingToCounterQuestion =

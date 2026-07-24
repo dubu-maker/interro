@@ -1569,7 +1569,8 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0 1rem;
 }
 
 .starter-questions[hidden] {
@@ -1589,6 +1590,136 @@ h1 {
 .starter-chip:hover {
   border-color: #b8a27b;
   color: #d9c9a8;
+}
+
+.interrogation-tutorial {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(12rem, 1fr) minmax(16rem, 1.15fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #37424d;
+  border-left: 2px solid #b99b65;
+  border-radius: 0.55rem;
+  background:
+    linear-gradient(100deg, rgb(185 155 101 / 9%), transparent 48%),
+    #141a20;
+}
+
+.interrogation-tutorial__marker {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid #6b5a3e;
+  border-radius: 50%;
+  color: #d2b16e;
+  background: rgb(184 162 123 / 8%);
+  font-family: "Courier New", monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.interrogation-tutorial__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.interrogation-tutorial__copy > span {
+  color: #8f9baa;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.interrogation-tutorial__copy strong {
+  color: #e6d6b6;
+  font-size: 0.82rem;
+}
+
+.interrogation-tutorial__copy p {
+  margin: 0;
+  color: #8f9baa;
+  font-size: 0.66rem;
+  line-height: 1.48;
+}
+
+.interrogation-tutorial__route {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.interrogation-tutorial__route li {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid rgb(69 82 94 / 58%);
+  border-radius: 0.38rem;
+  background: rgb(12 17 22 / 42%);
+}
+
+.interrogation-tutorial__route li + li::before {
+  position: absolute;
+  top: 50%;
+  left: -0.31rem;
+  color: #756448;
+  content: "›";
+  font-size: 0.75rem;
+  transform: translateY(-52%);
+}
+
+.interrogation-tutorial__route b {
+  color: #c7a970;
+  font-size: 0.62rem;
+}
+
+.interrogation-tutorial__route span {
+  overflow: hidden;
+  color: #7f8b97;
+  font-size: 0.56rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.interrogation-tutorial__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tutorial-action {
+  min-width: 6.8rem;
+  padding: 0.42rem 0.6rem;
+  border-radius: 0.38rem;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+.tutorial-action.secondary {
+  border-color: #4c5966;
+  color: #a6b4c1;
+  background: #1c242d;
+}
+
+.tutorial-action.primary {
+  border-color: #a78b59;
+  color: #211a10;
+  background: #c5a66c;
+  font-weight: 750;
+}
+
+.tutorial-action.primary:hover:not(:disabled) {
+  background: #d3b476;
 }
 
 .message.hint {
@@ -2202,6 +2333,22 @@ h1 {
   .counter-question-panel {
     margin-right: 0.75rem;
     margin-left: 0.75rem;
+  }
+
+  .interrogation-tutorial {
+    grid-template-columns: 1fr;
+  }
+
+  .interrogation-tutorial__marker {
+    display: none;
+  }
+
+  .interrogation-tutorial__actions {
+    flex-direction: row;
+  }
+
+  .tutorial-action {
+    flex: 1 1 0;
   }
 
   .forensic-grid {
