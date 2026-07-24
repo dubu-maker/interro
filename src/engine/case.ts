@@ -16,6 +16,8 @@ export interface CaseSuspect {
   persona: string;
   // 초상 이니셜 한 글자.
   portrait: string;
+  // 사건별 초상 이미지. 없으면 portrait 이니셜을 그대로 쓴다.
+  portraitImage?: string;
   // 심문 시작 시 표시되는 지문.
   introLine: string;
   contract: CaseContract;

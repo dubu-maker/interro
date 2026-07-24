@@ -143,6 +143,7 @@ export class DossierView {
     this.element = createElement('section', 'dossier-shell');
     this.element.dataset.dossierView = this.instanceId;
     this.element.setAttribute('aria-label', definition.title);
+    this.element.addEventListener('keydown', this.handleShellKeydown);
     host.replaceChildren(this.element);
     this.normalizeSelection();
     this.render(false);
@@ -266,44 +267,20 @@ export class DossierView {
       this.status.disabled === true,
     );
     this.element.dataset.mode = this.mode;
-    this.element.replaceChildren(
-      this.renderHeader(),
-      this.renderModeTabs(),
+    const panel =
       this.mode === 'documents'
         ? this.renderDocumentsPanel()
-        : this.renderRequestsPanel(),
-      this.renderQuoteToolbar(),
-    );
+        : this.renderRequestsPanel();
+    const children: HTMLElement[] = [this.renderTopbar(), panel];
+    if (this.mode === 'documents') {
+      children.push(this.renderQuoteToolbar());
+    }
+    this.element.replaceChildren(...children);
     this.restoreScrollPositions(positions);
   }
 
-  private renderHeader(): HTMLElement {
-    const header = createElement('header', 'dossier-header');
-    const copy = createElement('div', 'dossier-header__copy');
-    const eyebrow = createElement(
-      'p',
-      'dossier-eyebrow',
-      `사건 기록 · ${this.definition.caseNumber}`,
-    );
-    const title = createElement('h2', 'dossier-title', this.definition.title);
-    const theory = createElement('p', 'dossier-official-theory');
-    const theoryLabel = createElement('span', undefined, '초동 분류');
-    const theoryValue = createElement(
-      'strong',
-      undefined,
-      this.definition.officialTheory,
-    );
-    theory.append(theoryLabel, theoryValue);
-    copy.append(eyebrow, title, theory);
-
-    const close = createButton('dossier-close', '×');
-    close.setAttribute('aria-label', '사건 서류 닫기');
-    close.addEventListener('click', this.callbacks.onClose);
-    header.append(copy, close);
-    return header;
-  }
-
-  private renderModeTabs(): HTMLElement {
+  private renderTopbar(): HTMLElement {
+    const topbar = createElement('header', 'dossier-topbar');
     const navigation = createElement('nav', 'dossier-mode-tabs');
     navigation.setAttribute('role', 'tablist');
     navigation.setAttribute('aria-label', '서류철 보기');
@@ -344,7 +321,66 @@ export class DossierView {
       });
       navigation.append(button);
     }
-    return navigation;
+
+    const documents = this.acquiredDocuments();
+    const activeDocument = documents.find(
+      (document) => document.id === this.activeDocumentId,
+    );
+    const activeIndex = activeDocument
+      ? documents.findIndex((document) => document.id === activeDocument.id)
+      : -1;
+    const title = createElement(
+      'span',
+      'dossier-active-document',
+      this.mode === 'documents' && activeDocument
+        ? `${activeDocument.id} · ${activeDocument.title}`
+        : '감식·조회 의뢰',
+    );
+    const status = createElement(
+      'span',
+      'dossier-reading-status',
+      this.mode === 'documents'
+        ? '열람 중'
+        : `분석 자원 ${Math.max(
+            0,
+            this.definition.forensicSlotCount -
+              this.state.spentForensicSlots,
+          )}/${this.definition.forensicSlotCount}`,
+    );
+    const spacer = createElement('span', 'dossier-topbar__spacer');
+    const divider = (): HTMLSpanElement =>
+      createElement('span', 'dossier-topbar__divider');
+
+    topbar.append(navigation, divider(), title, status, spacer);
+
+    if (this.mode === 'documents') {
+      const previous = createButton('dossier-nav-button', '‹');
+      previous.setAttribute('aria-label', '이전 문서');
+      previous.title = '이전 문서 (←)';
+      previous.disabled =
+        this.status.disabled === true || documents.length < 2;
+      previous.addEventListener('click', () => this.navigateDocument(-1));
+
+      const next = createButton('dossier-nav-button', '›');
+      next.setAttribute('aria-label', '다음 문서');
+      next.title = '다음 문서 (→)';
+      next.disabled = this.status.disabled === true || documents.length < 2;
+      next.addEventListener('click', () => this.navigateDocument(1));
+
+      const counter = createElement(
+        'span',
+        'dossier-document-counter',
+        `${activeIndex >= 0 ? activeIndex + 1 : 0} / ${documents.length}`,
+      );
+      topbar.append(previous, next, counter);
+    }
+
+    const close = createButton('dossier-close dossier-nav-button', '×');
+    close.setAttribute('aria-label', '사건 서류 닫기');
+    close.title = '사건 서류 닫기 (Esc)';
+    close.addEventListener('click', this.callbacks.onClose);
+    topbar.append(divider(), close);
+    return topbar;
   }
 
   private selectMode(mode: DossierViewMode): void {
@@ -384,7 +420,7 @@ export class DossierView {
       );
       const heading = createElement(
         'h3',
-        'dossier-index-group__title',
+        'dossier-index-group__title dossier-visually-hidden',
         groupLabels[group],
       );
       const tabList = createElement('div', 'dossier-document-tabs');
@@ -420,7 +456,9 @@ export class DossierView {
     button.tabIndex = selected ? 0 : -1;
     button.classList.toggle('active', selected);
     button.classList.toggle('unread', !opened);
+    button.classList.toggle('read', opened);
     button.classList.toggle('supplemental', supplemental);
+    button.classList.toggle('forensic', supplemental);
     button.disabled = this.status.disabled === true;
 
     const id = createElement(
@@ -490,8 +528,56 @@ export class DossierView {
     this.selectedQuoteId = undefined;
     this.normalizeSelection();
     this.render();
+    this.resetDocumentStageScroll();
     this.activate();
     this.revealDocumentTab(documentId);
+  }
+
+  private navigateDocument(direction: -1 | 1): void {
+    if (this.status.disabled || this.mode !== 'documents') return;
+    const documents = this.acquiredDocuments();
+    if (documents.length < 2) return;
+    const currentIndex = documents.findIndex(
+      (document) => document.id === this.activeDocumentId,
+    );
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const next =
+      documents[
+        (safeIndex + direction + documents.length) % documents.length
+      ];
+    if (next) this.selectDocument(next.id);
+  }
+
+  private readonly handleShellKeydown = (event: KeyboardEvent): void => {
+    if (
+      event.defaultPrevented ||
+      this.status.disabled ||
+      this.mode !== 'documents' ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    ) {
+      return;
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    this.navigateDocument(event.key === 'ArrowRight' ? 1 : -1);
+  };
+
+  private resetDocumentStageScroll(): void {
+    const stage = this.element.querySelector<HTMLElement>(
+      '[data-dossier-scroll="document-stage"]',
+    );
+    if (stage) stage.scrollTop = 0;
   }
 
   private revealDocumentTab(documentId: string): void {
@@ -585,9 +671,7 @@ export class DossierView {
       `${this.instanceId}-document-tab-${dossierDocument.id}`,
     );
 
-    const folder = createElement('div', 'dossier-manila-folder');
     const paper = createElement('div', 'dossier-paper');
-    folder.classList.toggle('dossier-manila-folder--supplemental', supplemental);
     paper.classList.toggle('dossier-paper--supplemental', supplemental);
     const header = createElement('header', 'dossier-paper__header');
     const kind = createElement(
@@ -651,8 +735,7 @@ export class DossierView {
       paper.append(stamp);
     }
 
-    folder.append(paper);
-    article.append(folder);
+    article.append(paper);
     return article;
   }
 
@@ -717,6 +800,7 @@ export class DossierView {
     this.activePageIds.set(documentId, pageId);
     this.selectedQuoteId = undefined;
     this.render();
+    this.resetDocumentStageScroll();
   }
 
   private renderPage(
@@ -928,6 +1012,7 @@ export class DossierView {
       discoveryId !== undefined &&
       this.state.foundDiscoveryIds.includes(discoveryId);
     if (quoteId) button.setAttribute('aria-pressed', String(selected));
+    button.classList.toggle('quotable', quoteId !== undefined);
     button.classList.toggle('selected', selected);
     button.classList.toggle('discovered', found);
     button.disabled = this.status.disabled === true;
@@ -1331,6 +1416,7 @@ export class DossierView {
     this.selectedQuoteId = undefined;
     this.normalizeSelection();
     this.render();
+    this.resetDocumentStageScroll();
     this.activate();
     this.revealDocumentTab(documentId);
   }
@@ -1340,6 +1426,8 @@ export class DossierView {
     const quote = this.selectedQuote();
     const quoteAttached =
       quote !== undefined && quote.id === this.status.attachedQuoteId;
+    toolbar.classList.toggle('ready', quote !== undefined);
+    toolbar.classList.toggle('attached', quoteAttached);
     const copy = createElement('div', 'dossier-quote-toolbar__copy');
     const label = createElement(
       'span',

@@ -147,6 +147,9 @@ interface SuspectSession {
 
 const sessions = new Map<string, SuspectSession>();
 let activeSuspectId = activeCase.suspects[0]?.id ?? '';
+const visitedSuspectIds = new Set<string>(
+  activeSuspectId ? [activeSuspectId] : [],
+);
 
 function activeSuspect(): CaseSuspect {
   return getSuspect(activeCase, activeSuspectId);
@@ -265,6 +268,8 @@ app.innerHTML = `
       <p>${activeCase.briefing}</p>
     </section>
 
+    <section id="suspect-tabs" class="suspect-tabs" aria-label="심문 대상 선택"></section>
+
     <div class="workspace">
       <section class="interrogation-panel">
         <div id="scene-panel" class="scene-panel" hidden>
@@ -294,13 +299,16 @@ app.innerHTML = `
             <div id="scene-spots" class="scene-spots"></div>
           </details>
         </div>
-        <div id="suspect-tabs" class="suspect-tabs"></div>
-        <div class="suspect-card">
+        <div id="suspect-card" class="suspect-card">
           <div id="suspect-portrait" class="portrait" aria-hidden="true"></div>
-          <div>
+          <div class="suspect-identity">
             <p class="eyebrow">심문 대상</p>
-            <h2 id="suspect-name"></h2>
+            <div class="suspect-name-line">
+              <h2 id="suspect-name"></h2>
+              <span class="live-badge"><i aria-hidden="true"></i>심문 중</span>
+            </div>
             <p id="suspect-role"></p>
+            <p id="suspect-psychology-summary" class="suspect-psychology-summary"></p>
           </div>
           <div class="suspect-actions">
             <button id="indict-button" class="indict-button" type="button">재판에 넘긴다</button>
@@ -470,9 +478,13 @@ const sceneAccessibility = getElement<HTMLDetailsElement>('scene-accessibility')
 const phaseToggleButton = getElement<HTMLButtonElement>('phase-toggle-button');
 const dossierButton = getElement<HTMLButtonElement>('dossier-button');
 const suspectTabs = getElement<HTMLDivElement>('suspect-tabs');
+const suspectCard = getElement<HTMLDivElement>('suspect-card');
 const suspectPortrait = getElement<HTMLDivElement>('suspect-portrait');
 const suspectName = getElement<HTMLHeadingElement>('suspect-name');
 const suspectRole = getElement<HTMLParagraphElement>('suspect-role');
+const suspectPsychologySummary = getElement<HTMLParagraphElement>(
+  'suspect-psychology-summary',
+);
 const releaseButton = getElement<HTMLButtonElement>('release-button');
 const indictButton = getElement<HTMLButtonElement>('indict-button');
 const psychologyProgress = getElement<HTMLElement>('psychology-progress');
@@ -623,9 +635,30 @@ function rebuildChatLog(): void {
 
 function renderSuspectCard(): void {
   const current = activeSuspect();
-  suspectPortrait.textContent = current.portrait;
+  suspectPortrait.replaceChildren();
+  suspectPortrait.classList.toggle(
+    'has-image',
+    current.portraitImage !== undefined,
+  );
+  if (current.portraitImage) {
+    const image = document.createElement('img');
+    image.src = current.portraitImage;
+    image.alt = '';
+    suspectPortrait.append(image);
+    suspectCard.style.setProperty(
+      '--suspect-backdrop',
+      `url("${current.portraitImage}")`,
+    );
+  } else {
+    suspectPortrait.textContent = current.portrait;
+    suspectCard.style.removeProperty('--suspect-backdrop');
+  }
   suspectName.textContent = current.name;
-  suspectRole.textContent = current.role;
+  suspectRole.textContent = current.role.replace(', ', ' · ');
+  const dynamics = session().dynamicsState;
+  suspectPsychologySummary.textContent = dynamics
+    ? psychologyRead(dynamics)
+    : current.introLine;
   questionInput.placeholder = `${current.name}에게 질문한다…`;
 
   // 용의선상 제외: 남은 턴을 아끼는 대신, 진범을 놓아주면 그대로 패배한다.
@@ -661,10 +694,83 @@ function renderSuspectTabs(): void {
   for (const entry of visible) {
     const tab = document.createElement('button');
     tab.type = 'button';
+    const currentSession = sessions.get(entry.id);
+    const statementCount =
+      currentSession?.contractState.statements.length ??
+      entry.contract.initialClaimIds?.length ??
+      0;
+    const contradictionCount =
+      currentSession?.contractState.statements.filter(
+        (statement) => statement.status === 'CONTRADICTED',
+      ).length ?? 0;
     const released = releasedSuspectIds.has(entry.id);
-    tab.className = `suspect-tab${entry.id === activeSuspectId ? ' active' : ''}${released ? ' released' : ''}`;
-    tab.textContent = released ? `${entry.name} (제외)` : entry.name;
+    const active = entry.id === activeSuspectId;
+    const unread = !visitedSuspectIds.has(entry.id);
+    tab.className = `suspect-tab${active ? ' active' : ''}${released ? ' released' : ''}${unread ? ' unread' : ''}`;
     tab.disabled = isWaiting;
+    tab.setAttribute('aria-pressed', String(active));
+    tab.setAttribute(
+      'aria-label',
+      `${entry.name}, ${entry.role}, 진술 ${statementCount}건, 모순 ${contradictionCount}건${active ? ', 현재 심문 중' : ''}${released ? ', 용의선상 제외' : ''}`,
+    );
+
+    const portrait = document.createElement('span');
+    portrait.className = 'suspect-tab__portrait';
+    if (entry.portraitImage) {
+      const image = document.createElement('img');
+      image.src = entry.portraitImage;
+      image.alt = '';
+      portrait.append(image);
+    } else {
+      portrait.textContent = entry.portrait;
+    }
+
+    const body = document.createElement('span');
+    body.className = 'suspect-tab__body';
+    const heading = document.createElement('span');
+    heading.className = 'suspect-tab__heading';
+    const name = document.createElement('strong');
+    name.textContent = entry.name;
+    heading.append(name);
+    if (active) {
+      const activeLabel = document.createElement('em');
+      activeLabel.textContent = '심문 중';
+      heading.append(activeLabel);
+    } else if (unread) {
+      const unreadDot = document.createElement('i');
+      unreadDot.className = 'suspect-tab__unread';
+      unreadDot.setAttribute('aria-hidden', 'true');
+      heading.append(unreadDot);
+    }
+
+    const role = document.createElement('span');
+    role.className = 'suspect-tab__role';
+    role.textContent = entry.role.replace(', ', ' · ');
+
+    const read = document.createElement('span');
+    read.className = 'suspect-tab__read';
+    read.textContent = released
+      ? '용의선상 제외'
+      : currentSession?.dynamicsState
+        ? psychologyRead(currentSession.dynamicsState)
+        : active
+          ? '첫 반응을 살피는 중'
+          : visitedSuspectIds.has(entry.id)
+            ? '심문 기록 확인됨'
+            : '아직 심문하지 않음';
+
+    const stats = document.createElement('span');
+    stats.className = 'suspect-tab__stats';
+    const statementStat = document.createElement('span');
+    statementStat.textContent = `진술 ${statementCount}`;
+    const contradictionStat = document.createElement('span');
+    contradictionStat.className =
+      contradictionCount > 0 ? 'has-contradiction' : '';
+    contradictionStat.textContent = `모순 ${contradictionCount}`;
+    stats.append(statementStat, contradictionStat);
+
+    body.append(heading, role, read, stats);
+    tab.append(portrait, body);
     tab.addEventListener('click', () => switchSuspect(entry.id));
     suspectTabs.append(tab);
   }
@@ -1072,6 +1178,7 @@ function switchSuspect(suspectId: string): void {
   if (isWaiting || suspectId === activeSuspectId) return;
   if (!unlockedSuspectIds.has(suspectId)) return;
   activeSuspectId = suspectId;
+  visitedSuspectIds.add(suspectId);
   session();
   slottedEvidence = undefined;
   slottedQuote = undefined;
@@ -1168,7 +1275,9 @@ function renderInterrogationControls(): void {
 
   interrogationControl.hidden = false;
   const psychology = state.psychology;
-  interrogationReadLabel.textContent = psychologyRead(state);
+  const currentRead = psychologyRead(state);
+  interrogationReadLabel.textContent = currentRead;
+  suspectPsychologySummary.textContent = currentRead;
 
   interrogationMeters.replaceChildren();
   const meterEntries: Array<[string, number, string]> = [

@@ -6,6 +6,9 @@ import {
   yoonHaneulContract,
 } from './contracts';
 import { case3Dossier } from './dossier';
+import jangMiraePortrait from './assets/portraits/jang-mirae.webp';
+import leeGyutaePortrait from './assets/portraits/lee-gyutae.webp';
+import yoonHaneulPortrait from './assets/portraits/yoon-haneul.webp';
 
 const evidences: Evidence[] = [
   {
@@ -203,6 +206,7 @@ export const case3: CaseDefinition = {
       persona:
         '존댓말을 사용한다. 실무적인 단어로 짧게 답하지만 손이 떨릴 만큼 불안하다. 자신의 규정 위반은 두려워해도 기술적으로 다른 행동까지 한데 묶는 질문에는 분명히 반박한다.',
       portrait: '장',
+      portraitImage: jangMiraePortrait,
       introLine:
         '장미래는 양손을 무릎 사이에 끼운 채 앉아 있다. 손끝이 계속 떨린다.',
       contract: jangMiraeContract,
@@ -214,6 +218,7 @@ export const case3: CaseDefinition = {
       persona:
         '차갑고 직설적인 반말과 존댓말의 경계를 오간다. 서혜진에 대한 적개심을 감추지 않지만 감정만으로 범인 취급하면 입을 닫는다. 동정받는 것을 특히 싫어한다.',
       portrait: '윤',
+      portraitImage: yoonHaneulPortrait,
       introLine:
         '윤하늘은 울지 않는다. 의자 등받이에 기대어 심문관의 첫 질문을 기다린다.',
       contract: yoonHaneulContract,
@@ -225,6 +230,7 @@ export const case3: CaseDefinition = {
       persona:
         '침착한 존댓말로 길고 기술적인 설명을 한다. 상대가 기계를 이해하지 못한다고 전제하며 기록의 한계와 다른 사람의 과실을 강조한다. 궁지에서도 목소리를 높이지 않고 끝까지 자백하지 않는다.',
       portrait: '이',
+      portraitImage: leeGyutaePortrait,
       introLine:
         '이규태는 팔짱을 낀 채 앉아 있다. 조사실 설비부터 훑어본 뒤 심문관을 바라본다.',
       contract: leeGyutaeContract,
